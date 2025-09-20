@@ -41,7 +41,7 @@ export default function Layout() {
 
             {user ? (
               <>
-                <span className="text-white font-semibold">Hola, {user.email}</span>
+                <span className="text-white font-semibold">Hola, {user.username}</span>
                 <div className="relative items-center md:order-2 space-x-3 md:space-x-0 rtl:space-x-reverse">
                   <button
                     type="button"
