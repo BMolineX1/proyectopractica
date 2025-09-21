@@ -3,17 +3,21 @@ from sqlalchemy.orm import Session
 from typing import List
 from app import models, schemas, database
 from fastapi.middleware.cors import CORSMiddleware
+import secrets
+from passlib.context import CryptContext
 
 from fastapi_auth_jwt import JWTAuthenticationMiddleware
 from app.routers.usuarios import auth_backend
 from app.dependencies import get_db
 from app.routers.usuarios import router as routerUsuarios
+from app.routers.emprendedores import router as routerEmprendedores
+
 
 
 
 # Create FastAPI app and add middleware
 app = FastAPI()
-
+app.include_router(routerEmprendedores)
 app.add_middleware(
     JWTAuthenticationMiddleware,
     backend=auth_backend,
@@ -37,24 +41,7 @@ models.Base.metadata.create_all(bind=database.engine)
 
 app.include_router(routerUsuarios)
 
-"""@app.post("/usuario/registro", response_model=schemas.UsuarioResponse)
-def registro_usuario(user: schemas.RegisterSchema, db: Session = Depends(get_db)):
-    if db.query(models.Usuario).filter(models.Usuario.email == user.email).first():
-        raise HTTPException(status_code=400, detail="El email ya está registrado")
-    if db.query(models.Usuario).filter(models.Usuario.username == user.username).first():
-        raise HTTPException(status_code=400, detail="El username ya está en uso")
-
-    hashed_password = pwd_context.hash(user.password)
-    nuevo_usuario = models.Usuario(
-        email=user.email,
-        username=user.username,
-        password=hashed_password,
-        rol=user.rol
-    )
-    db.add(nuevo_usuario)
-    db.commit()
-    db.refresh(nuevo_usuario)
-    return nuevo_usuario"""
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # ==========================
 #   EMPRENDEDORES
@@ -189,10 +176,6 @@ def crear_servicio(servicio: schemas.ServicioCreate, db: Session = Depends(get_d
     db.refresh(nuevo)
     return nuevo
 
-
-@app.get("/servicios/", response_model=List[schemas.ServicioResponseCreate])
-def listar_servicios(db: Session = Depends(get_db)):
-    return db.query(models.Servicio).all()
 
 
 @app.get("/servicios/{servicio_id}", response_model=schemas.ServicioResponseCreate)

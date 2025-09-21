@@ -41,7 +41,7 @@ export default function Layout() {
 
             {user ? (
               <>
-                <span className="text-white font-semibold">Hola, {user.username}</span>
+                <span className="text-white font-semibold">Hola, {user.rol}</span>
                 <div className="relative items-center md:order-2 space-x-3 md:space-x-0 rtl:space-x-reverse">
                   <button
                     type="button"
@@ -62,7 +62,7 @@ export default function Layout() {
                       <div className="px-4 py-3">
                     
                         <span className="block text-sm text-gray-500 truncate dark:text-gray-400">
-                          Hola, {user?.email || user?.username || "Usuario"}
+                          Hola, {user?.rol || user?.username || "Usuario"}
                         </span>
                       </div>
                       <ul className="py-2" aria-labelledby="user-menu-button">

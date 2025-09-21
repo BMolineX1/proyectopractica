@@ -16,7 +16,8 @@ export const Login = () => {
   const navigate = useNavigate(); // ✅ así definís navigate
   const [formData, setFormData] = useState({
     username: "",
-    password: ""
+    password: "",
+    rol: "cliente", // 👈 valor por defecto
   });
 
   const [error, setError] = useState(null);
@@ -29,43 +30,31 @@ export const Login = () => {
     });
   }
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (isLoading) return;
+  e.preventDefault();
+  setIsLoading(true);
+  setError(null);
 
-    setIsLoading(true);
-    setError(null);
- 
-    try {
-      const res = await axios.post("http://127.0.0.1:8000/usuarios/login/", formData);
-      console.log(res.data); // <-- agrega esto
-      login({
-  username: res.data.username,
-  password: res.data.password, //
-  accessToken: res.data.accessToken,
-  refreshToken: res.data.refreshToken
-}); // actualizar contexto
-      navigate("/"); // redirigir al home
+  try {
+    const res = await axios.post("http://127.0.0.1:8000/usuarios/login/", formData);
+    console.log("Respuesta backend login:", res.data);
 
-      // Limpiar formulario
-      setFormData({
-        email: "",
-        password: "",
-        cliente: "cliente",
-      });
+    login({
+      username: formData.username, // o res.data.user_schema.email
+      email: res.data.user_schema.email,
+      accessToken: res.data.token,
+      refreshToken: res.data.token,
+      rol: res.data.user_schema.rol || "cliente",
+    });
 
-    } catch (err) {
-      if (err.response && err.response.data) {
-        // Mostrar primer error que venga del backend
-        const firstError = Object.values(err.response.data).flat()[0];
-        setError(firstError);
-      } else {
-        setError("Email o contraseña incorrecto.");
-        console.error(err);
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    navigate("/");
+
+  } catch (err) {
+    setError("Email o contraseña incorrecto.");
+    console.error(err);
+  } finally {
+    setIsLoading(false);
+  }
+};
 
   return (
     <>

@@ -33,7 +33,7 @@ export default function Home() {
     </p>
 
     <div className="mt-4">
-      <a href="/registro" className="inline-block bg-gradient-to-r from-blue-600 to-cyan-400 shadow-lg text-white rounded-lg px-12 py-4 hover:scale-105 hover:from-cyan-400 hover:to-blue-600 transition duration-300 ease-in-out">
+      <a href="/ingresarcodigo" className="inline-block bg-gradient-to-r from-blue-600 to-cyan-400 shadow-lg text-white rounded-lg px-12 py-4 hover:scale-105 hover:from-cyan-400 hover:to-blue-600 transition duration-300 ease-in-out">
         Reservar Turnos
       </a>
     </div>

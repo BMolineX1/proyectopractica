@@ -6,21 +6,29 @@ export const UserContext = createContext();
 export const UserProvider = ({ children }) => {
   const [user, setUser] = useState(null);
 
+  // Cargar usuario desde localStorage al iniciar la app
   useEffect(() => {
-    const storedUsername = localStorage.getItem("username");
-    const storedEmail = localStorage.getItem("email"); // <-- nuevo
-    const token = localStorage.getItem("accessToken");
-    if (storedUsername && token) {
-      setUser({ username: storedUsername, email: storedEmail });
+    const username = localStorage.getItem("username");
+    const email = localStorage.getItem("email");
+    const rol = localStorage.getItem("rol");
+    const accessToken = localStorage.getItem("accessToken");
+
+    if (username && email && rol && accessToken) {
+      setUser({ username, email, rol });
     }
   }, []);
 
   const login = (userData) => {
-    localStorage.setItem("username", userData.username);
-    localStorage.setItem("email", userData.email); // <-- nuevo
-    localStorage.setItem("accessToken", userData.accessToken);
-    localStorage.setItem("refreshToken", userData.refreshToken);
-    setUser({ username: userData.username, email: userData.email });
+    console.log("Respuesta backend login:", userData);
+    const { username, email, rol, accessToken, refreshToken } = userData;
+
+    localStorage.setItem("username", username);
+    localStorage.setItem("email", email);
+    localStorage.setItem("rol", rol);
+    localStorage.setItem("accessToken", accessToken);
+    localStorage.setItem("refreshToken", refreshToken);
+
+    setUser({ username, email, rol });
   };
 
   const logout = async () => {
@@ -29,10 +37,13 @@ export const UserProvider = ({ children }) => {
     } catch (error) {
       console.error("Error al cerrar sesión:", error);
     }
+
+    localStorage.removeItem("username");
+    localStorage.removeItem("email");
+    localStorage.removeItem("rol");
     localStorage.removeItem("accessToken");
     localStorage.removeItem("refreshToken");
-    localStorage.removeItem("username");
-    localStorage.removeItem("email"); // <-- nuevo
+
     setUser(null);
   };
 

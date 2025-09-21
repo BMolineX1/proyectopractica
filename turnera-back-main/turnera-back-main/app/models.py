@@ -32,6 +32,7 @@ class Emprendedor(Base):
 
     usuario = relationship("Usuario", back_populates="emprendedor")
     servicios = relationship("Servicio", back_populates="emprendedor")
+    codigo_cliente = Column(String, unique=True, nullable=True)
 
 
 class Servicio(Base):
