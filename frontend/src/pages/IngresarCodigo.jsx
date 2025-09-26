@@ -1,16 +1,27 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import axios from "axios";
 
 export default function IngresarCodigo() {
   const [codigo, setCodigo] = useState("");
   const navigate = useNavigate();
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!codigo) return alert("Ingresa un código válido");
-    
-    // Redirigir a la página de turnos por código
-    navigate(`/reservar/${codigo}`);
+
+    try {
+      // Verificar con el backend si existe el emprendedor
+      const res = await axios.get(`http://localhost:8000/emprendedores/${codigo}`);
+
+      if (res.data) {
+        // ✅ Existe → redirigir a la página de turnos
+        navigate(`/reservar/${codigo}`);
+      }
+    } catch (err) {
+      // ❌ No existe el emprendedor
+      alert("El código ingresado no corresponde a ningún emprendedor.");
+    }
   };
 
   return (

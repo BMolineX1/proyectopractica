@@ -1,5 +1,5 @@
 // src/Calendario.jsx
-import React from "react";
+import React, { useState } from "react";
 import { Calendar, momentLocalizer } from "react-big-calendar";
 import moment from "moment";
 import "moment/locale/es";
@@ -28,11 +28,14 @@ export default function Calendario({
   onSelectSlot = () => {},
   defaultView = "month",
 }) {
+  const [view, setView] = useState(defaultView); // Vista actual
+  const [date, setDate] = useState(new Date()); // Fecha actual
+
   const events = (turnos || []).map((t) => ({
     ...t,
     title: `${t.servicio}${t.cliente ? " — " + t.cliente : ""}`,
-    start: typeof t.start === "string" ? new Date(t.start) : t.start,
-    end: typeof t.end === "string" ? new Date(t.end) : t.end,
+    start: typeof t.start === "string" ? moment.parseZone(t.start).toDate() : t.start,
+    end: typeof t.end === "string" ? moment.parseZone(t.end).toDate() : t.end,
     color: t.color || (t.cliente ? "#d32f2f" : "#1976d2"),
   }));
 
@@ -70,8 +73,11 @@ export default function Calendario({
         events={events}
         startAccessor="start"
         endAccessor="end"
-        defaultView={defaultView}
         views={["month", "week", "day", "agenda"]}
+        view={view}
+        date={date}
+        onView={(v) => setView(v)}
+        onNavigate={(newDate) => setDate(newDate)}
         selectable
         onSelectEvent={onSelectEvent}
         onSelectSlot={onSelectSlot}

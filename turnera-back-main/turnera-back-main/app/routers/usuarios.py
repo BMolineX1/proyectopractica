@@ -22,6 +22,23 @@ auth_backend = JWTAuthBackend(
     user_schema=User,
 )
 
+@router.put("/{usuario_id}/activar_emprendedor")
+async def activar_emprendedor(usuario_id: int, db: Session = Depends(get_db)):
+    usuario = db.query(models.Usuario).filter(models.Usuario.id == usuario_id).first()
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    
+    usuario.rol = "emprendedor"
+    db.commit()
+    db.refresh(usuario)
+    
+    # Crear token nuevo con rol actualizado
+    token = await auth_backend.create_token({"username": usuario.username, "rol": usuario.rol})
+    
+    schema = schemas.UsuarioResponse.model_validate(usuario)
+    
+    return {"user": schema, "token": token}
+
 @router.post("/registro")
 async def sign_up(request_data: RegisterSchema, db: Session = Depends(get_db)):
 

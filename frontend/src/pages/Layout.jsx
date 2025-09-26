@@ -10,9 +10,15 @@ export default function Layout() {
   const [openDropdown, setOpenDropdown] = useState(false);
 
   const handleLogout = async () => {
-    await logout();
+  try {
+    await logout(); // limpia user y localStorage
+  } catch (err) {
+    console.error(err);
+  } finally {
+    setOpenDropdown(false);
     navigate("/login");
-  };
+  }
+};
 
   return (
     <div className="min-h-screen flex flex-col">

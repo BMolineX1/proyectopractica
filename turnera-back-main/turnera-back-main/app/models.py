@@ -1,9 +1,30 @@
 from typing import Optional
 from pydantic import Field
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Float, Text, UniqueConstraint
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Float, Text, UniqueConstraint , Time
 from sqlalchemy.orm import relationship
 from app.database import Base
 import datetime
+
+
+
+######### De Fede ####################
+class Horario(Base):
+    __tablename__ = "horarios"
+    id = Column(Integer, primary_key=True, index=True)
+    emprendedor_id = Column(Integer, ForeignKey("emprendedores.id"))  # <- Cambiado
+    dia_semana = Column(String)  # "Lunes", "Martes", etc.
+    hora_inicio = Column(Time)
+    hora_fin = Column(Time)
+
+    emprendedor = relationship("Emprendedor", back_populates="horarios")  # <- corregido
+
+
+
+########################################
+
+
+
+
 
 class Usuario(Base):
     __tablename__ = "usuarios"
@@ -18,6 +39,8 @@ class Usuario(Base):
 
     emprendedor = relationship("Emprendedor", back_populates="usuario", uselist=False)
     reservas = relationship("Reserva", back_populates="usuario")
+    #Esta relacionado con horarios
+    
 
 
 class Emprendedor(Base):
@@ -33,6 +56,8 @@ class Emprendedor(Base):
     usuario = relationship("Usuario", back_populates="emprendedor")
     servicios = relationship("Servicio", back_populates="emprendedor")
     codigo_cliente = Column(String, unique=True, nullable=True)
+
+    horarios = relationship("Horario", back_populates="emprendedor", cascade="all, delete-orphan")
 
 
 class Servicio(Base):

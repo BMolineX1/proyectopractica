@@ -1,9 +1,32 @@
 from pydantic import BaseModel, EmailStr
-from datetime import datetime
+from datetime import datetime, time
 from typing import Optional, List
 
 
 from pydantic import BaseModel
+
+
+
+#==========Agrego Fede ===============#
+class HorarioBase(BaseModel):
+    dia_semana: str
+    hora_inicio: time
+    hora_fin: time
+
+class HorarioUpdate(BaseModel):
+    dia_semana: str
+    hora_inicio: str | None = None
+    hora_fin: str | None = None
+
+class HorarioCreate(HorarioBase):
+    pass
+
+class Horario(HorarioBase):
+    id: int
+    emprendedor_id: int
+
+    class Config:
+        orm_mode = True
 
 # ===================== JWT =================================
 
@@ -49,6 +72,7 @@ class EmprendedorBase(BaseModel):
 
 class EmprendedorCreate(EmprendedorBase):
     usuario_id: int
+    codigo_cliente: Optional[str] = None
 
 
 class EmprendedorResponse(EmprendedorBase):
