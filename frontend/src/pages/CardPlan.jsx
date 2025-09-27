@@ -1,6 +1,7 @@
+// src/components/CardPlan.jsx
 import React, { useContext } from "react";
 import { UserContext } from "../context/UserContext";
-import axios from "axios";
+import api from "../components/api";
 
 export default function CardPlan() {
   const { user, setUser } = useContext(UserContext);
@@ -8,31 +9,39 @@ export default function CardPlan() {
   // Si el usuario ya es emprendedor, no mostrar la tarjeta
   if (user?.rol === "emprendedor") return null;
 
-  // Función para simular el pago y activar el rol
   const handleActivate = async () => {
     try {
       console.log("Simulando pago y activando rol de emprendedor...");
 
-      // Llamada al backend para activar rol
-      const accessToken = localStorage.getItem("accessToken");
-      const res = await axios.put(
-        `http://127.0.0.1:8000/usuarios/${user?.id}/activar_emprendedor`,
-        {},
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
-        }
-      );
+      // Usamos la instancia api (tiene el Authorization por interceptor)
+      const res = await api.put(`/usuarios/${user?.id}/activar_emprendedor`);
 
-      // Actualizar user en localStorage y contexto
-      const updatedUser = res.data.user || { ...user, rol: "emprendedor" };
+      // 🔁 Backend devuelve { user, token }
+      const { user: userServer, token } = res.data || {};
+
+      // Guardar token nuevo (ya con rol actualizado) en localStorage
+      if (token) {
+        localStorage.setItem("accessToken", token);
+      }
+
+      // Usar user del backend o fallback al user actual con rol "emprendedor"
+      const updatedUser = userServer || { ...user, rol: "emprendedor" };
       localStorage.setItem("rol", updatedUser.rol);
-      setUser(updatedUser);
+
+      // Actualizar el contexto
+      setUser((prev) => ({
+        ...prev,
+        ...updatedUser,
+      }));
 
       console.log("Rol de emprendedor activado:", updatedUser);
+      alert("¡Listo! Tu cuenta ahora es de emprendedor.");
     } catch (error) {
       console.error("Error activando rol de emprendedor:", error);
+      const msg =
+        error?.response?.data?.detail ||
+        "No se pudo activar el rol. Revisá la consola para más info.";
+      alert(msg);
     }
   };
 

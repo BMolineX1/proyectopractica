@@ -1,32 +1,34 @@
-import React, { useState, useEffect, useContext } from "react";
+import React, { useState, useEffect } from "react";
 import Modal from "./Modal";
 import api from "../components/api";
-import { UserContext } from "../context/UserContext";
 
-export default function ServicesModal({ emprendedorId, onClose, onServiceAdded }) {
+export default function ServicesModal({ onClose, onServiceAdded }) {
   const [services, setServices] = useState([]);
   const [nombre, setNombre] = useState("");
   const [duracion, setDuracion] = useState("");
   const [precio, setPrecio] = useState("");
-  const [editingId, setEditingId] = useState(null); // id del servicio que se está editando
-  const { user } = useContext(UserContext);
+  const [editingId, setEditingId] = useState(null); // id del servicio que se edita
 
-  // Cargar servicios del backend
-  const loadServices = async () => {
-    try {
-      if (!emprendedorId) return;
-      const res = await api.get(`/emprendedores/${emprendedorId}/servicios`);
-      setServices(res.data);
-    } catch (err) {
-      console.error("Error cargando servicios:", err.response?.data || err);
-    }
-  };
+  const loadBootstrap = async () => {
+  try {
+    // obtiene el emprendedor del usuario logueado
+    const me = await api.get("/emprendedores/mi");       // <-- NUEVO
+    const id = me.data?.id;
+
+    if (!id) throw new Error("No se encontró emprendedor para el usuario");
+
+    // lista servicios del emprendedor
+    const res = await api.get(`/emprendedores/${id}/servicios`);
+    setServices(res.data);
+  } catch (err) {
+    console.error("Error cargando servicios:", err.response?.data || err);
+  }
+};
 
   useEffect(() => {
-    loadServices();
-  }, [emprendedorId]);
+    loadBootstrap();
+  }, []);
 
-  // Limpiar inputs
   const resetForm = () => {
     setNombre("");
     setDuracion("");
@@ -35,55 +37,46 @@ export default function ServicesModal({ emprendedorId, onClose, onServiceAdded }
   };
 
   // Crear o actualizar servicio
-  const handleSubmit = async () => {
-    if (!nombre || !duracion) {
-      return alert("Complete nombre y duración del servicio");
-    }
-    if (!emprendedorId) {
-      console.error("No se tiene emprendedorId.");
-      return alert("Error: no se pudo identificar el emprendedor.");
-    }
+const handleSubmit = async () => {
+  if (!nombre || !duracion) return alert("Complete nombre y duración");
 
-    const payload = {
-      nombre,
-      duracion: Number(duracion),
-      precio: Number(precio) || 0,
-      emprendedor_id: Number(emprendedorId),
-    };
-
-    try {
-      if (editingId) {
-        // Actualizar
-        const res = await api.put(`/servicios/${editingId}`, payload);
-        console.log("Servicio actualizado:", res.data);
-      } else {
-        // Crear
-        const res = await api.post("/servicios/", payload);
-        console.log("Servicio creado:", res.data);
-      }
-
-      resetForm();
-      loadServices();
-      if (typeof onServiceAdded === "function") onServiceAdded();
-    } catch (err) {
-      console.error("Error guardando servicio:", err.response?.data || err);
-      alert(`Error del servidor: ${JSON.stringify(err.response?.data || err)}`);
-    }
+  const payload = {
+    nombre,
+    duracion: Number(duracion),
+    precio: Number(precio) || 0,
   };
 
-  // Eliminar servicio
+  try {
+    if (editingId) {
+      // actualizar (esto sigue igual)
+      const res = await api.put(`/servicios/${editingId}`, payload);
+      console.log("Servicio actualizado:", res.data);
+    } else {
+      // crear para MI emprendedor
+      const res = await api.post("/mis/servicios", payload);  // <-- NUEVO
+      console.log("Servicio creado:", res.data);
+    }
+
+    resetForm();
+    loadBootstrap();
+    onServiceAdded?.();
+  } catch (err) {
+    console.error("Error guardando servicio:", err.response?.data || err);
+    alert(`Error del servidor: ${JSON.stringify(err.response?.data || err)}`);
+  }
+};
+
   const handleDelete = async (id) => {
     if (!confirm("¿Seguro que quieres eliminar este servicio?")) return;
     try {
       await api.delete(`/servicios/${id}`);
-      loadServices();
+      await loadBootstrap();
     } catch (err) {
       console.error("Error eliminando servicio:", err.response?.data || err);
-      alert("No se pudo eliminar el servicio.");
+      alert(err.response?.data?.detail || "No se pudo eliminar el servicio.");
     }
   };
 
-  // Cargar servicio en inputs para editar
   const handleEdit = (s) => {
     setNombre(s.nombre);
     setDuracion(s.duracion);
@@ -95,7 +88,6 @@ export default function ServicesModal({ emprendedorId, onClose, onServiceAdded }
     <Modal onClose={onClose}>
       <h3 className="text-lg font-semibold mb-2">Servicios</h3>
 
-      {/* Lista de servicios */}
       <ul className="mb-4 divide-y divide-gray-200 max-h-48 overflow-y-auto">
         {services.map((s) => (
           <li key={s.id} className="py-1 flex justify-between items-center">
@@ -118,7 +110,6 @@ export default function ServicesModal({ emprendedorId, onClose, onServiceAdded }
         ))}
       </ul>
 
-      {/* Formulario para agregar/editar */}
       <div className="flex flex-col gap-2">
         <input
           className="border rounded p-2"

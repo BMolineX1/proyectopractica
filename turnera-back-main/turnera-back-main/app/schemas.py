@@ -1,35 +1,37 @@
-from pydantic import BaseModel, EmailStr
 from datetime import datetime, time
 from typing import Optional, List
 
-
-from pydantic import BaseModel
-
+from pydantic import BaseModel, EmailStr, Field, ConfigDict
 
 
-#==========Agrego Fede ===============#
+# =========================
+# Horarios
+# =========================
 class HorarioBase(BaseModel):
     dia_semana: str
     hora_inicio: time
     hora_fin: time
 
+
 class HorarioUpdate(BaseModel):
     dia_semana: str
-    hora_inicio: str | None = None
-    hora_fin: str | None = None
+    hora_inicio: Optional[str] = None
+    hora_fin: Optional[str] = None
+
 
 class HorarioCreate(HorarioBase):
     pass
 
+
 class Horario(HorarioBase):
     id: int
     emprendedor_id: int
+    model_config = ConfigDict(from_attributes=True)
 
-    class Config:
-        orm_mode = True
 
-# ===================== JWT =================================
-
+# =========================
+# Auth / JWT
+# =========================
 class RegisterSchema(BaseModel):
     username: str
     password: str
@@ -42,12 +44,12 @@ class LoginSchema(BaseModel):
     password: str
 
 
-__all__ = ["RegisterSchema", "LoginSchema"]
-
-
-# ---------- Usuario ----------
+# =========================
+# Usuario
+# =========================
 class UsuarioBase(BaseModel):
     email: EmailStr
+    username: str
     rol: str = "cliente"
 
 
@@ -57,16 +59,16 @@ class UsuarioCreate(UsuarioBase):
 
 class UsuarioResponse(UsuarioBase):
     id: int
-
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
-# ---------- Emprendedor ----------
+# =========================
+# Emprendedor
+# =========================
 class EmprendedorBase(BaseModel):
     nombre: str
-    apellido: str
-    negocio: str
+    apellido: Optional[str] = None
+    negocio: Optional[str] = None
     descripcion: Optional[str] = None
 
 
@@ -77,15 +79,29 @@ class EmprendedorCreate(EmprendedorBase):
 
 class EmprendedorResponse(EmprendedorBase):
     id: int
-    usuario: UsuarioResponse
+    usuario_id: int
+    codigo_cliente: Optional[str] = None
+    model_config = ConfigDict(from_attributes=True)
 
-    class Config:
-        orm_mode = True
+
+# =========================
+# Turno (para anidar en servicios)
+# =========================
+class TurnoResponse(BaseModel):
+    id: int
+    fecha_hora_inicio: datetime
+    capacidad: int
+    precio: Optional[float] = None
+    model_config = ConfigDict(from_attributes=True)
 
 
-# ---------- Servicio ----------
+# =========================
+# Servicio
+# =========================
 class ServicioBase(BaseModel):
     nombre: str
+    duracion: int
+    precio: Optional[float] = 0
     descripcion: Optional[str] = None
 
 
@@ -95,12 +111,23 @@ class ServicioCreate(ServicioBase):
 
 class ServicioResponseCreate(ServicioBase):
     id: int
-
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
-# ---------- Turno ----------
+# Respuesta “completa” con turnos (usada en /servicios/mis-servicios)
+class ServicioResponse(BaseModel):
+    id: int
+    nombre: str
+    descripcion: Optional[str] = None
+    duracion: int
+    precio: Optional[float] = 0
+    turnos: List[TurnoResponse] = Field(default_factory=list)
+    model_config = ConfigDict(from_attributes=True)
+
+
+# =========================
+# Turno (CRUD)
+# =========================
 class TurnoBase(BaseModel):
     fecha_hora_inicio: datetime
     duracion_minutos: int
@@ -114,32 +141,12 @@ class TurnoCreate(TurnoBase):
 
 class TurnoResponseCreate(TurnoBase):
     id: int
-
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
-class TurnoResponse(BaseModel):
-    id: int
-    fecha_hora_inicio: datetime
-    capacidad: int
-    precio: Optional[float]
-
-    class Config:
-        orm_mode = True
-
-
-class ServicioResponse(BaseModel):
-    id: int
-    nombre: str
-    descripcion: Optional[str]
-    turnos: List[TurnoResponse] = []
-
-    class Config:
-        orm_mode = True
-
-
-# ---------- Reserva ----------
+# =========================
+# Reserva
+# =========================
 class ReservaBase(BaseModel):
     turno_id: int
     usuario_id: int
@@ -151,18 +158,14 @@ class ReservaCreate(ReservaBase):
 
 class ReservaResponse(ReservaBase):
     id: int
-
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ReservaOut(BaseModel):
     id: int
     turno_id: int
     fecha_hora_inicio: datetime
-    precio: Optional[float]
+    precio: Optional[float] = None
     servicio_nombre: str
     emprendedor_id: int
-
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
