@@ -1,3 +1,4 @@
+// src/pages/Turnos.jsx
 import React, { useState, useEffect, useContext, useMemo } from "react";
 import { useParams } from "react-router-dom";
 import moment from "moment";
@@ -36,7 +37,7 @@ export default function Turnos() {
   // ====== UI state ======
   const [showAddModal, setShowAddModal] = useState(false);     // dueño
   const [showEditModal, setShowEditModal] = useState(false);   // dueño
-  const [showReserveModal, setShowReserveModal] = useState(false); // cliente
+  const [showReserveModal, setShowReserveModal] = useState(false); // cliente (turno pre-creado)
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [showServicesModal, setShowServicesModal] = useState(false);
   const [showHoursModal, setShowHoursModal] = useState(false);
@@ -46,7 +47,6 @@ export default function Turnos() {
   const [selectedDate, setSelectedDate] = useState(new Date());
 
   // ====== Hours in EN keys ======
-  // Valor por defecto; se sobreescribe con fetchHours()
   const [hours, setHours] = useState({
     monday: [{ from: "09:00", to: "18:00" }],
     tuesday: [{ from: "09:00", to: "18:00" }],
@@ -66,86 +66,80 @@ export default function Turnos() {
 
   // ====== Datos públicos para VISITANTE ======
   const [publicEvents, setPublicEvents] = useState([]);
-const [ownerServices, setOwnerServices] = useState([]);
+  const [ownerServices, setOwnerServices] = useState([]);
 
-const fetchPublicData = async (empId) => {
-  if (!empId || isOwner) return;
-  try {
-    // 1) Servicios del dueño
-    const servCandidates = [
-      `/emprendedores/${empId}/servicios`,
-      `/servicios?emprendedor_id=${empId}`,
-    ];
-    let servs = [];
-    for (const url of servCandidates) {
-      try {
-        const r = await api.get(url);
-        servs = Array.isArray(r.data) ? r.data : (r.data?.items || r.data || []);
-        break;
-      } catch (e) {
-        if (e?.response?.status !== 404) console.warn("Servicios no disponibles en", url, e?.response?.data || e);
+  // Trae servicios del emprendedor, turnos por servicio y marca ocupados por capacidad (reserva inmediata)
+  const fetchPublicData = async (empId) => {
+    if (!empId || isOwner) return;
+    try {
+      // 1) Servicios del dueño
+      const servCandidates = [
+        `/emprendedores/${empId}/servicios`,
+        `/servicios?emprendedor_id=${empId}`,
+      ];
+      let servs = [];
+      for (const url of servCandidates) {
+        try {
+          const r = await api.get(url);
+          servs = Array.isArray(r.data) ? r.data : (r.data?.items || r.data || []);
+          if (servs.length) break;
+        } catch (e) {
+          if (e?.response?.status !== 404) console.warn("Servicios no disponibles en", url, e?.response?.data || e);
+        }
       }
-    }
-    const byId = new Map((servs || []).map(s => [s.id, s]));
-    const ownerServiceIds = new Set((servs || []).map(s => s.id));
+      const byId = new Map((servs || []).map(s => [s.id, s]));
 
-    // 2) Turnos del dueño (algunos backends NO filtran bien → filtramos nosotros)
-    const turnCandidates = [
-      `/emprendedores/${empId}/turnos`,
-      `/turnos?emprendedor_id=${empId}`,
-    ];
-    let turns = [];
-    for (const url of turnCandidates) {
-      try {
-        const r = await api.get(url);
-        turns = Array.isArray(r.data) ? r.data : (r.data?.items || r.data || []);
-        break;
-      } catch (e) {
-        if (e?.response?.status !== 404) console.warn("Turnos no disponibles en", url, e?.response?.data || e);
+      // 2) Turnos del dueño: traer por CADA servicio
+      let turns = [];
+      for (const s of servs) {
+        try {
+          const r = await api.get(`/servicios/${s.id}/turnos`);
+          const arr = Array.isArray(r.data) ? r.data : (r.data?.items || r.data || []);
+          turns.push(...arr);
+        } catch (e) {
+          if (e?.response?.status !== 404) console.warn("Turnos no disponibles para servicio", s.id, e?.response?.data || e);
+        }
       }
-    }
-    // Filtro duro por dueño
-    const filteredTurnos = (turns || []).filter(t =>
-      String(t.emprendedor_id || "") === String(empId) ||
-      (t.servicio_id && ownerServiceIds.has(t.servicio_id))
-    );
 
-    // 3) Reservas del dueño → para marcar qué turnos ya están ocupados
-    const resCandidates = [
-      `/emprendedores/${empId}/reservas`,
-      `/reservas?emprendedor_id=${empId}`,
-    ];
-    let reservas = [];
-    for (const url of resCandidates) {
+      // 3) Reservas del emprendedor (para marcar ocupados)
+      let reservas = [];
       try {
-        const r = await api.get(url);
+        const r = await api.get(`/reservas`, { params: { emprendedor_id: empId } });
         reservas = Array.isArray(r.data) ? r.data : (r.data?.items || r.data || []);
-        break;
       } catch (e) {
-        if (e?.response?.status !== 404) console.warn("Reservas no disponibles en", url, e?.response?.data || e);
+        if (e?.response?.status !== 404) console.warn("Reservas no disponibles", e?.response?.data || e);
       }
+
+      // Contar reservas por turno (capacidad)
+      const countByTurno = new Map();
+      (reservas || []).forEach(r => {
+        const k = r.turno_id;
+        countByTurno.set(k, (countByTurno.get(k) || 0) + 1);
+      });
+
+      // 4) Enriquecer + marcar ocupado/libre
+      const enriched = (turns || []).map(t => {
+        const s = t.servicio || byId.get(t.servicio_id) || null;
+        const count = countByTurno.get(t.id) || 0;
+        const cap = Number(t.capacidad ?? 1);
+        const ocupado = count >= cap;           // si alcanzó la capacidad, está ocupado
+        return {
+          ...t,
+          servicio: s,
+          reservas_count: count,
+          reservado: ocupado,
+          color: ocupado ? "#9ca3af" : "#16a34a", // gris si ocupado, verde si libre
+          emprendedor_id: s?.emprendedor_id ?? t.emprendedor_id ?? empId,
+        };
+      });
+
+      setOwnerServices(servs);
+      setPublicEvents(enriched);
+    } catch (err) {
+      console.error("Error cargando turnos públicos:", err);
+      setPublicEvents([]);
     }
-    const reservedByTurno = new Map((reservas || []).map(r => [r.turno_id, r]));
-
-    // 4) Enriquecer + marcar reservado
-    const enriched = filteredTurnos.map(t => {
-      const s = t.servicio || byId.get(t.servicio_id) || null;
-      const res = reservedByTurno.get(t.id);
-      return {
-        ...t,
-        servicio: s,
-        reservado: !!res,
-        cliente: res?.cliente_nombre || t.cliente || null, // si viene el nombre del cliente, lo mostramos
-      };
-    });
-
-    setOwnerServices(servs);
-    setPublicEvents(enriched);
-  } catch (err) {
-    console.error("Error cargando turnos públicos:", err);
-    setPublicEvents([]);
-  }
-};
+  };
 
   // ====== Bootstrap: my emprendedor ======
   useEffect(() => {
@@ -218,7 +212,7 @@ const fetchPublicData = async (empId) => {
     const candidates = [
       `/emprendedores/${effectiveEmpId}/horarios`,
       `/horarios?emprendedor_id=${effectiveEmpId}`,
-      `/horarios/${effectiveEmpId}`, // si existe, perfecto; si no, 404 y sigue
+      `/horarios/${effectiveEmpId}`,
     ];
 
     let obtained = null;
@@ -283,11 +277,35 @@ const fetchPublicData = async (empId) => {
   }, [user?.id, gridOwner?.id, isOwner]);
 
   // ====== Slot selection ======
+  const [quickReserveOpen, setQuickReserveOpen] = useState(false);
+  const [quickReserve, setQuickReserve] = useState({ startISO: "", servicioId: "" });
+
   const onSelectSlot = (slotInfo) => {
-    if (!isOwner) {
-      alert("Para reservar como cliente, hacé click en un turno disponible (bloque del calendario).");
+    // DUEÑO: sigue creando turnos normalmente
+    if (isOwner) {
+      const dayKey = dayKeyENFromDate(slotInfo.start);
+      const bloques = hours[dayKey] || [];
+      if (!bloques.length) {
+        alert(`No se atiende los ${EN2ES_TIT[dayKey] || dayKey}.`);
+        return;
+      }
+      const timeStr = moment(slotInfo.start).format("HH:mm");
+      const isValid = bloques.some((b) => timeStr >= b.from && timeStr < b.to);
+      if (!isValid) {
+        alert("Horario fuera de los bloques definidos.");
+        return;
+      }
+      setSlotToAdd({ start: slotInfo.start, end: slotInfo.end });
+      setFormAdd({
+        servicioId: services[0]?.id || "",
+        cliente: "",
+        startISO: moment(slotInfo.start).format("YYYY-MM-DDTHH:mm"),
+      });
+      setShowAddModal(true);
       return;
     }
+
+    // CLIENTE: permitir reservar directo si está dentro de horario de atención
     const dayKey = dayKeyENFromDate(slotInfo.start);
     const bloques = hours[dayKey] || [];
     if (!bloques.length) {
@@ -300,33 +318,32 @@ const fetchPublicData = async (empId) => {
       alert("Horario fuera de los bloques definidos.");
       return;
     }
-    setSlotToAdd({ start: slotInfo.start, end: slotInfo.end });
-    setFormAdd({
-      servicioId: services[0]?.id || "",
-      cliente: "",
+    // abrir modal para elegir servicio y confirmar
+    setQuickReserve({
       startISO: moment(slotInfo.start).format("YYYY-MM-DDTHH:mm"),
+      servicioId: ownerServices?.[0]?.id || "",
     });
-    setShowAddModal(true);
+    setQuickReserveOpen(true);
   };
 
-  // ====== Click en EVENTO ======
-  const onSelectEvent = async (evt) => {
-  if (isOwner) {
+  // ====== Click en EVENTO (turno pre-creado) ======
+  const onSelectEvent = (evt) => {
+    if (isOwner) {
+      setSelectedEvent(evt);
+      setShowEditModal(true);
+      return;
+    }
+    if (evt.reservado) {
+      alert("Ese turno ya está reservado.");
+      return;
+    }
+    if (hasActiveReservation) {
+      alert("Ya tenés una reserva activa con este emprendimiento.");
+      return;
+    }
     setSelectedEvent(evt);
-    setShowEditModal(true);
-    return;
-  }
-  if (evt.reservado) {
-    alert("Ese turno ya está reservado.");
-    return;
-  }
-  if (hasActiveReservation) {
-    alert("Ya tenés una reserva activa con este emprendimiento.");
-    return;
-  }
-  setSelectedEvent(evt);
-  setShowReserveModal(true);
-};
+    setShowReserveModal(true);
+  };
 
   // ====== Mutations ======
   const handleAddTurno = async () => {
@@ -352,7 +369,7 @@ const fetchPublicData = async (empId) => {
     }
   };
 
-  const handleDeleteTurno = async ( ) => {
+  const handleDeleteTurno = async () => {
     if (!selectedEvent) return;
     if (!confirm("¿Eliminar este turno?")) return;
     try {
@@ -365,26 +382,26 @@ const fetchPublicData = async (empId) => {
     }
   };
 
-  // ====== Confirmar RESERVA (visitante) ======
+  // ====== Confirmar RESERVA (visitante) — inmediata (sobre turno ya creado) ======
   const [reserving, setReserving] = useState(false);
   const handleConfirmReserva = async () => {
     if (!selectedEvent || !user?.id) return;
+    if (selectedEvent.reservado) { // doble chequeo
+      alert("Ese turno ya está reservado.");
+      return;
+    }
     if (hasActiveReservation) {
       alert("Ya tenés una reserva activa con este emprendimiento.");
       return;
     }
     try {
       setReserving(true);
-      await api.post("/reservas/", {
-        turno_id: selectedEvent.id,
-        usuario_id: user.id,
-      });
+      await api.post("/reservas/", { turno_id: selectedEvent.id });
       setShowReserveModal(false);
       setSelectedEvent(null);
       await refreshHasActiveReservation();
+      if (gridOwner?.id) await fetchPublicData(gridOwner.id); // refresca colores
       alert("¡Reserva confirmada!");
-      // refresco los turnos públicos para que ese turno desaparezca del listado, si el back lo marca como no disponible
-      if (!isOwner && gridOwner?.id) fetchPublicData(gridOwner.id);
     } catch (err) {
       console.error("Error creando reserva:", err?.response?.data || err);
       const d = err?.response?.data;
@@ -394,23 +411,52 @@ const fetchPublicData = async (empId) => {
     }
   };
 
+  // ====== Confirmar RESERVA DIRECTA (hueco vacío) ======
+  const [reservingQuick, setReservingQuick] = useState(false);
+  const handleConfirmQuickReserve = async () => {
+    if (!quickReserve.startISO || !quickReserve.servicioId) return;
+    if (hasActiveReservation) {
+      alert("Ya tenés una reserva activa con este emprendimiento.");
+      return;
+    }
+    try {
+      setReservingQuick(true);
+      await api.post("/reservas/directo", {
+        servicio_id: Number(quickReserve.servicioId),
+        fecha_hora_inicio: moment(quickReserve.startISO).toISOString(),
+      });
+      setQuickReserveOpen(false);
+      await refreshHasActiveReservation();
+      if (gridOwner?.id) await fetchPublicData(gridOwner.id); // refrescar colores
+      alert("¡Reserva confirmada!");
+    } catch (err) {
+      console.error("Error en reserva directa:", err?.response?.data || err);
+      alert(err?.response?.data?.detail || "No se pudo reservar ese horario.");
+    } finally {
+      setReservingQuick(false);
+    }
+  };
+
   // ====== Fuente de eventos según modo ======
   const eventsForCalendar = useMemo(() => {
-  if (isOwner) return turnosForCalendar;
-  return (publicEvents || []).map((e) => {
-    const ne = normalizeEvent(e);
-    const baseTitle = ne.servicio?.nombre || "Servicio";
-    const title = e.reservado
-      ? `${baseTitle} — Reservado${e.cliente ? " (" + e.cliente + ")" : ""}`
-      : `${baseTitle}${e.cliente ? " — " + e.cliente : ""}`;
-    return {
-      ...ne,
-      reservado: !!e.reservado,
-      title,
-      color: e.reservado ? "#9ca3af" : "#1976d2", // gris si reservado
-    };
-  });
-}, [isOwner, turnosForCalendar, publicEvents, normalizeEvent]);
+    const src = isOwner ? turnosForCalendar : publicEvents || [];
+    return src.map((e) => {
+      const ne = normalizeEvent(e);
+      const hora = moment(ne.start).format("HH:mm");
+      const servicio = ne.servicio?.nombre || "Servicio";
+
+      const titulo = isOwner
+        ? `${hora} — ${servicio}${ne.cliente ? " — " + ne.cliente : ""}`
+        : (e.reservado ? `${hora} — ${servicio} — Reservado` : `${hora} — ${servicio}`);
+
+      return {
+        ...ne,
+        reservado: !!e.reservado,
+        title: titulo,
+        color: e.color ?? (e.reservado ? "#9ca3af" : "#16a34a"),
+      };
+    });
+  }, [isOwner, turnosForCalendar, publicEvents, normalizeEvent]);
 
   const baseEventsForList = isOwner ? events : publicEvents;
 
@@ -520,9 +566,15 @@ const fetchPublicData = async (empId) => {
             <p className="text-gray-600 text-xs">
               {isOwner
                 ? "Seleccioná un turno en el calendario para editar o cancelar."
-                : "Elegí un turno disponible (bloque del calendario) para confirmarlo."
+                : "Hacé clic en un espacio vacío del calendario (dentro del horario) para reservar."
               }
             </p>
+
+            {/* Leyenda simple */}
+            <div className="flex items-center gap-3 text-xs text-gray-600">
+              <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded-sm inline-block" style={{background:"#16a34a"}}/> Disponible</span>
+              <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded-sm inline-block" style={{background:"#9ca3af"}}/> Ocupado</span>
+            </div>
 
             {stillLoading && (
               <span className="px-3 py-1 text-sm rounded bg-gray-100 text-gray-500 w-fit">Cargando…</span>
@@ -542,7 +594,7 @@ const fetchPublicData = async (empId) => {
                   ? "Verificando tus reservas…"
                   : hasActiveReservation
                     ? "Ya tenés una reserva activa con este emprendimiento."
-                    : "Hacé click en un turno del calendario para reservarlo."}
+                    : "Hacé clic en un espacio vacío del calendario para reservar."}
               </div>
             )}
 
@@ -622,14 +674,19 @@ const fetchPublicData = async (empId) => {
                       <li
                         key={t.id}
                         className="flex gap-2 p-2 rounded-lg bg-gray-50 hover:bg-gray-100 cursor-pointer"
-                        onClick={() => { setSelectedEvent(t); setShowReserveModal(true); }}
+                        onClick={() => {
+                          if (t.reservado) { alert("Ese turno ya está reservado."); return; }
+                          if (hasActiveReservation) { alert("Ya tenés una reserva activa con este emprendimiento."); return; }
+                          setSelectedEvent(t);
+                          setShowReserveModal(true);
+                        }}
                       >
                         <div className="w-20 font-semibold text-gray-800">
                           {moment(ne.start).format("HH:mm")}–{moment(ne.end).format("HH:mm")}
                         </div>
                         <div className="flex flex-col">
                           <div className="font-semibold text-gray-800">{t.servicio?.nombre}</div>
-                          <div className="text-gray-500 text-sm">{t.cliente || ""}</div>
+                          <div className="text-gray-500 text-sm">{t.cliente || (t.reservado ? "Reservado" : "")}</div>
                         </div>
                       </li>
                     );
@@ -688,7 +745,7 @@ const fetchPublicData = async (empId) => {
               </>
             )}
             <button
-              disabled={reserving || hasActiveReservation}
+              disabled={reserving || hasActiveReservation || selectedEvent?.reservado}
               onClick={handleConfirmReserva}
               className="w-full py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white shadow"
             >
@@ -696,6 +753,61 @@ const fetchPublicData = async (empId) => {
             </button>
             {hasActiveReservation && (
               <p className="text-xs text-red-600 mt-2">Ya tenés una reserva activa con este emprendimiento.</p>
+            )}
+          </Modal>
+        )}
+
+        {/* Modal de RESERVA DIRECTA (hueco vacío) */}
+        {quickReserveOpen && !isOwner && (
+          <Modal onClose={() => setQuickReserveOpen(false)}>
+            <h3 className="text-lg font-semibold mb-3">Reservar este horario</h3>
+
+            <div className="text-sm text-gray-700 mb-1">Fecha y hora</div>
+            <input
+              type="datetime-local"
+              className="w-full border rounded p-3 mb-3"
+              value={quickReserve.startISO}
+              onChange={(e) =>
+                setQuickReserve((prev) => ({ ...prev, startISO: e.target.value }))
+              }
+            />
+
+            <div className="text-sm text-gray-700 mb-1">Servicio</div>
+            <select
+              className="w-full border rounded p-2 mb-4"
+              value={quickReserve.servicioId}
+              onChange={(e) =>
+                setQuickReserve((prev) => ({ ...prev, servicioId: e.target.value }))
+              }
+            >
+              {(ownerServices || []).length === 0 ? (
+                <option value="">(No hay servicios disponibles)</option>
+              ) : (
+                ownerServices.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.nombre} — {s.duracion} min {s.precio != null ? `($${s.precio})` : ""}
+                  </option>
+                ))
+              )}
+            </select>
+
+            <button
+              disabled={
+                reservingQuick ||
+                hasActiveReservation ||
+                !quickReserve.servicioId ||
+                !quickReserve.startISO
+              }
+              onClick={handleConfirmQuickReserve}
+              className="w-full py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white shadow"
+            >
+              {reservingQuick ? "Reservando..." : "Confirmar reserva"}
+            </button>
+
+            {hasActiveReservation && (
+              <p className="text-xs text-red-600 mt-2">
+                Ya tenés una reserva activa con este emprendimiento.
+              </p>
             )}
           </Modal>
         )}

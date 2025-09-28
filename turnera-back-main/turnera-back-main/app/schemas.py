@@ -162,13 +162,14 @@ class TurnoWithCliente(TurnoResponseCreate):
 # =========================
 class ReservaBase(BaseModel):
     turno_id: int
-    usuario_id: int
 
 class ReservaCreate(ReservaBase):
     pass
 
-class ReservaResponse(ReservaBase):
+class ReservaResponse(BaseModel):
     id: int
+    turno_id: int
+    usuario_id: int
     model_config = ConfigDict(from_attributes=True)
 
 class ReservaOut(BaseModel):
@@ -191,3 +192,8 @@ class ReservaAgendaItem(BaseModel):
     cliente_email: Optional[EmailStr] = None
     precio: Optional[float] = None
     model_config = ConfigDict(from_attributes=True)
+
+
+class ReservaDirectaCreate(BaseModel):
+    servicio_id: int
+    fecha_hora_inicio: datetime

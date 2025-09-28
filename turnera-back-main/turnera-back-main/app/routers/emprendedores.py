@@ -114,7 +114,7 @@ def servicios_por_codigo(codigo: str, db: Session = Depends(get_db)):
 # =========================================================
 # SERVICIOS → TURNOS (consultas por servicio)
 # =========================================================
-@router.get("/servicios/{servicio_id}/turnos", response_model=List[schemas.TurnoResponseCreate])
+@router.get("/servicios/{servicio_id}/turnos", response_model=List[schemas.TurnoResponse])
 def turnos_por_servicio(servicio_id: int, db: Session = Depends(get_db)):
     return (
         db.query(models.Turno)
@@ -123,7 +123,7 @@ def turnos_por_servicio(servicio_id: int, db: Session = Depends(get_db)):
         .all()
     )
 
-@router.get("/servicios/{servicio_id}/turnos/disponibles", response_model=List[schemas.TurnoResponseCreate])
+@router.get("/servicios/{servicio_id}/turnos/disponibles", response_model=List[schemas.TurnoResponse])
 def turnos_disponibles_por_servicio(servicio_id: int, db: Session = Depends(get_db)):
     ahora = datetime.utcnow()
     turnos = (
@@ -145,7 +145,7 @@ def turnos_disponibles_por_servicio(servicio_id: int, db: Session = Depends(get_
 # =========================================================
 # MIS servicios / MIS turnos (protegidos)
 # =========================================================
-@router.get("/servicios/mis-servicios", response_model=List[schemas.ServicioResponseCreate])
+@router.get("/servicios/mis-servicios", response_model=List[schemas.ServicioResponse])
 def mis_servicios(
     db: Session = Depends(get_db),
     current_user: models.Usuario = Depends(get_current_user),
@@ -157,7 +157,7 @@ def mis_servicios(
         .all()
     )
 
-@router.get("/turnos/mis-turnos", response_model=List[schemas.TurnoResponseCreate])
+@router.get("/turnos/mis-turnos", response_model=List[schemas.TurnoResponse])
 def mis_turnos(
     db: Session = Depends(get_db),
     current_user: models.Usuario = Depends(get_current_user),
@@ -251,13 +251,13 @@ def eliminar_emprendedor(emprendedor_id: int, db: Session = Depends(get_db)):
 # =========================================================
 # SERVICIOS
 # =========================================================
-@router.get("/servicios/", response_model=List[schemas.ServicioResponseCreate])
+@router.get("/servicios/", response_model=List[schemas.ServicioResponse])
 def list_servicios(db: Session = Depends(get_db)):
     return db.query(models.Servicio).all()
 
 @router.get(
     "/emprendedores/{emprendedor_id}/servicios",
-    response_model=List[schemas.ServicioResponseCreate],
+    response_model=List[schemas.ServicioResponse],
 )
 def listar_servicios_por_emprendedor(
     emprendedor_id: int, db: Session = Depends(get_db)
@@ -275,7 +275,7 @@ def listar_servicios_por_emprendedor(
         .all()
     )
 
-@router.post("/mis/servicios", response_model=schemas.ServicioResponseCreate)
+@router.post("/mis/servicios", response_model=schemas.ServicioResponse)
 def crear_mi_servicio(
     data: ServicioCreateSimple,
     db: Session = Depends(get_db),
@@ -293,7 +293,7 @@ def crear_mi_servicio(
     db.refresh(nuevo)
     return nuevo
 
-@router.post("/servicios/", response_model=schemas.ServicioResponseCreate)
+@router.post("/servicios/", response_model=schemas.ServicioResponse)
 def crear_servicio(servicio: schemas.ServicioCreate, db: Session = Depends(get_db)):
     emprendedor = (
         db.query(models.Emprendedor)
@@ -308,7 +308,7 @@ def crear_servicio(servicio: schemas.ServicioCreate, db: Session = Depends(get_d
     db.refresh(nuevo)
     return nuevo
 
-@router.get("/servicios/{servicio_id}", response_model=schemas.ServicioResponseCreate)
+@router.get("/servicios/{servicio_id}", response_model=schemas.ServicioResponse)
 def detalle_servicio(servicio_id: int, db: Session = Depends(get_db)):
     servicio = (
         db.query(models.Servicio)
@@ -322,7 +322,7 @@ def detalle_servicio(servicio_id: int, db: Session = Depends(get_db)):
 # =========================================================
 # TURNOS (CRUD) — con chequeo de dueño
 # =========================================================
-@router.post("/turnos/", response_model=schemas.TurnoResponseCreate)
+@router.post("/turnos/", response_model=schemas.TurnoResponse)
 def crear_turno(
     turno: schemas.TurnoCreate,
     db: Session = Depends(get_db),
@@ -345,18 +345,18 @@ def crear_turno(
     db.refresh(nuevo)
     return nuevo
 
-@router.get("/turnos/", response_model=List[schemas.TurnoResponseCreate])
+@router.get("/turnos/", response_model=List[schemas.TurnoResponse])
 def listar_turnos(db: Session = Depends(get_db)):
     return db.query(models.Turno).all()
 
-@router.get("/turnos/{turno_id}", response_model=schemas.TurnoResponseCreate)
+@router.get("/turnos/{turno_id}", response_model=schemas.TurnoResponse)
 def detalle_turno(turno_id: int, db: Session = Depends(get_db)):
     turno = db.query(models.Turno).filter(models.Turno.id == turno_id).first()
     if not turno:
         raise HTTPException(status_code=404, detail="Turno no encontrado")
     return turno
 
-@router.put("/turnos/{turno_id}", response_model=schemas.TurnoResponseCreate)
+@router.put("/turnos/{turno_id}", response_model=schemas.TurnoResponse)
 def actualizar_turno(
     turno_id: int,
     datos: schemas.TurnoBase,
