@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useContext } from "react";
+import React, { useState, useEffect, useContext, useMemo } from "react";
+import { useParams } from "react-router-dom";
 import moment from "moment";
 import Calendario from "../hooks/Calendario";
 import ServicesModal from "../hooks/ServicesModal";
@@ -8,16 +9,44 @@ import { useTurnos } from "../hooks/useTurnos";
 import { UserContext } from "../context/UserContext";
 import api from "../components/api";
 
+const ES2EN = {
+  lunes: "monday", martes: "tuesday", miércoles: "wednesday", miercoles: "wednesday",
+  jueves: "thursday", viernes: "friday", sábado: "saturday", sabado: "saturday",
+  domingo: "sunday",
+};
+const EN2ES_TIT = {
+  monday: "Lunes", tuesday: "Martes", wednesday: "Miércoles", thursday: "Jueves",
+  friday: "Viernes", saturday: "Sábado", sunday: "Domingo",
+};
+
 export default function Turnos() {
   const { user } = useContext(UserContext);
-  console.log("USER:", user);
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [showEditModal, setShowEditModal] = useState(false);
+  const { codigo } = useParams(); // /reservar/:codigo
+
+  // ====== Owner detection ======
+  const [myEmp, setMyEmp] = useState(null);
+  const [gridOwner, setGridOwner] = useState(null);
+  const [loadingMyEmp, setLoadingMyEmp] = useState(!!user);
+  const [loadingOwner, setLoadingOwner] = useState(true);
+
+  const sameId = (a, b) => a != null && b != null && String(a) === String(b);
+  const isOwner = useMemo(() => !!(myEmp && gridOwner && sameId(myEmp.id, gridOwner.id)), [myEmp, gridOwner]);
+  const stillLoading = loadingMyEmp || loadingOwner;
+
+  // ====== UI state ======
+  const [showAddModal, setShowAddModal] = useState(false);     // dueño
+  const [showEditModal, setShowEditModal] = useState(false);   // dueño
+  const [showReserveModal, setShowReserveModal] = useState(false); // cliente
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [showServicesModal, setShowServicesModal] = useState(false);
   const [showHoursModal, setShowHoursModal] = useState(false);
   const [slotToAdd, setSlotToAdd] = useState(null);
   const [formAdd, setFormAdd] = useState({ servicioId: "", cliente: "", startISO: "" });
+
+  const [selectedDate, setSelectedDate] = useState(new Date());
+
+  // ====== Hours in EN keys ======
+  // Valor por defecto; se sobreescribe con fetchHours()
   const [hours, setHours] = useState({
     monday: [{ from: "09:00", to: "18:00" }],
     tuesday: [{ from: "09:00", to: "18:00" }],
@@ -28,58 +57,249 @@ export default function Turnos() {
     sunday: [],
   });
 
+  // Hook “propietario”
   const {
-    services,
-    events,
-    turnosForCalendar,
-    addTurno,
-    updateTurno,
-    deleteTurno,
-    normalizeEvent,
-    refreshServices,
+    services, events, turnosForCalendar,
+    addTurno, updateTurno, deleteTurno,
+    normalizeEvent, refreshServices,
   } = useTurnos();
 
-  // ==============================
-  // Cargar horarios desde backend
-  // ==============================
-  const fetchHours = async () => {
-    if (!user?.emprendimiento_id) return;
-    try {
-      const res = await api.get(`/horarios/${user.emprendimiento_id}`);
-      const data = res.data;
-      // Transformar a formato de HoursModal
-      const newHours = {
-        monday: [],
-        tuesday: [],
-        wednesday: [],
-        thursday: [],
-        friday: [],
-        saturday: [],
-        sunday: [],
+  // ====== Datos públicos para VISITANTE ======
+  const [publicEvents, setPublicEvents] = useState([]);
+const [ownerServices, setOwnerServices] = useState([]);
+
+const fetchPublicData = async (empId) => {
+  if (!empId || isOwner) return;
+  try {
+    // 1) Servicios del dueño
+    const servCandidates = [
+      `/emprendedores/${empId}/servicios`,
+      `/servicios?emprendedor_id=${empId}`,
+    ];
+    let servs = [];
+    for (const url of servCandidates) {
+      try {
+        const r = await api.get(url);
+        servs = Array.isArray(r.data) ? r.data : (r.data?.items || r.data || []);
+        break;
+      } catch (e) {
+        if (e?.response?.status !== 404) console.warn("Servicios no disponibles en", url, e?.response?.data || e);
+      }
+    }
+    const byId = new Map((servs || []).map(s => [s.id, s]));
+    const ownerServiceIds = new Set((servs || []).map(s => s.id));
+
+    // 2) Turnos del dueño (algunos backends NO filtran bien → filtramos nosotros)
+    const turnCandidates = [
+      `/emprendedores/${empId}/turnos`,
+      `/turnos?emprendedor_id=${empId}`,
+    ];
+    let turns = [];
+    for (const url of turnCandidates) {
+      try {
+        const r = await api.get(url);
+        turns = Array.isArray(r.data) ? r.data : (r.data?.items || r.data || []);
+        break;
+      } catch (e) {
+        if (e?.response?.status !== 404) console.warn("Turnos no disponibles en", url, e?.response?.data || e);
+      }
+    }
+    // Filtro duro por dueño
+    const filteredTurnos = (turns || []).filter(t =>
+      String(t.emprendedor_id || "") === String(empId) ||
+      (t.servicio_id && ownerServiceIds.has(t.servicio_id))
+    );
+
+    // 3) Reservas del dueño → para marcar qué turnos ya están ocupados
+    const resCandidates = [
+      `/emprendedores/${empId}/reservas`,
+      `/reservas?emprendedor_id=${empId}`,
+    ];
+    let reservas = [];
+    for (const url of resCandidates) {
+      try {
+        const r = await api.get(url);
+        reservas = Array.isArray(r.data) ? r.data : (r.data?.items || r.data || []);
+        break;
+      } catch (e) {
+        if (e?.response?.status !== 404) console.warn("Reservas no disponibles en", url, e?.response?.data || e);
+      }
+    }
+    const reservedByTurno = new Map((reservas || []).map(r => [r.turno_id, r]));
+
+    // 4) Enriquecer + marcar reservado
+    const enriched = filteredTurnos.map(t => {
+      const s = t.servicio || byId.get(t.servicio_id) || null;
+      const res = reservedByTurno.get(t.id);
+      return {
+        ...t,
+        servicio: s,
+        reservado: !!res,
+        cliente: res?.cliente_nombre || t.cliente || null, // si viene el nombre del cliente, lo mostramos
       };
-      data.forEach((h) => {
-        newHours[h.dia_semana] = [{ from: h.hora_inicio, to: h.hora_fin }];
+    });
+
+    setOwnerServices(servs);
+    setPublicEvents(enriched);
+  } catch (err) {
+    console.error("Error cargando turnos públicos:", err);
+    setPublicEvents([]);
+  }
+};
+
+  // ====== Bootstrap: my emprendedor ======
+  useEffect(() => {
+    let canceled = false;
+    (async () => {
+      if (!user) { setLoadingMyEmp(false); return; }
+      try {
+        setLoadingMyEmp(true);
+        const r = await api.get("/emprendedores/mi");
+        if (!canceled) setMyEmp(r.data || null);
+      } catch {
+        if (!canceled) setMyEmp(null);
+      } finally {
+        if (!canceled) setLoadingMyEmp(false);
+      }
+    })();
+    return () => { canceled = true; };
+  }, [user]);
+
+  // ====== Resolve grid owner ======
+  useEffect(() => {
+    let canceled = false;
+    (async () => {
+      try {
+        setLoadingOwner(true);
+        if (codigo) {
+          const r = await api.get(`/emprendedores/by-codigo/${codigo}`);
+          if (!canceled) setGridOwner(r.data || null);
+        } else {
+          if (!canceled) setGridOwner(prev => prev ?? myEmp ?? null);
+        }
+      } catch {
+        if (!canceled) setGridOwner(null);
+      } finally {
+        if (!canceled) setLoadingOwner(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [codigo, myEmp?.id]);
+
+  // Cuando cambia el dueño y soy visitante, traigo sus turnos/servicios públicos
+  useEffect(() => {
+    if (!gridOwner?.id) return;
+    if (!isOwner) fetchPublicData(gridOwner.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gridOwner?.id, isOwner]);
+
+  // ====== Fetch hours (normalize to EN keys) ======
+  const fetchHours = async () => {
+    const effectiveEmpId = gridOwner?.id ?? myEmp?.id ?? user?.emprendimiento_id;
+    if (!effectiveEmpId) return;
+
+    const normalizeHours = (data) => {
+      const map = {
+        monday: [], tuesday: [], wednesday: [],
+        thursday: [], friday: [], saturday: [], sunday: []
+      };
+      (data || []).forEach((h) => {
+        const raw = String(h.dia_semana || h.dia || h.day || "").trim().toLowerCase();
+        const deacc = raw.normalize("NFD").replace(/\p{Diacritic}/gu, "");
+        const key = ES2EN[deacc] || deacc;
+        if (!map[key]) return;
+        const ini = ("" + (h.hora_inicio || h.desde || h.start)).slice(0, 5);
+        const fin = ("" + (h.hora_fin || h.hasta  || h.end)).slice(0, 5);
+        if (ini && fin) map[key].push({ from: ini, to: fin });
       });
-      setHours(newHours);
-    } catch (err) {
-      console.error("Error cargando horarios:", err);
+      return map;
+    };
+
+    const candidates = [
+      `/emprendedores/${effectiveEmpId}/horarios`,
+      `/horarios?emprendedor_id=${effectiveEmpId}`,
+      `/horarios/${effectiveEmpId}`, // si existe, perfecto; si no, 404 y sigue
+    ];
+
+    let obtained = null;
+    for (const url of candidates) {
+      try {
+        const r = await api.get(url);
+        obtained = Array.isArray(r.data) ? r.data : (r.data?.items || r.data || []);
+        break;
+      } catch (e) {
+        if (e?.response?.status === 404) continue;
+        console.warn("No se pudo leer horarios desde", url, e?.response?.data || e);
+      }
+    }
+
+    if (obtained == null) {
+      console.warn("No encontré endpoint de horarios; mantengo los horarios en memoria.");
+      return;
+    }
+
+    setHours(normalizeHours(obtained));
+  };
+
+  useEffect(() => { fetchHours(); /* eslint-disable-next-line */ }, [gridOwner?.id]);
+
+  // ====== Helpers ======
+  const dayKeyENFromDate = (dateObj) => {
+    const es = moment(dateObj).format("dddd").toLowerCase();
+    const deacc = es.normalize("NFD").replace(/\p{Diacritic}/gu, "");
+    return ES2EN[deacc] || deacc;
+  };
+
+  const workingDayKeys = useMemo(() =>
+    Object.entries(hours).filter(([k, arr]) => (arr?.length || 0) > 0).map(([k]) => k),
+  [hours]);
+
+  // ====== Límite 1 reserva activa para visitante ======
+  const [hasActiveReservation, setHasActiveReservation] = useState(false);
+  const [checkingActiveRes, setCheckingActiveRes] = useState(false);
+
+  const refreshHasActiveReservation = async () => {
+    if (!user?.id || !gridOwner?.id || isOwner) return;
+    setCheckingActiveRes(true);
+    try {
+      const { data } = await api.get(`/usuarios/${user.id}/reservas`);
+      const now = moment();
+      const has = (data || []).some(
+        r => String(r.emprendedor_id) === String(gridOwner.id) &&
+             moment(r.fecha_hora_inicio).isSameOrAfter(now)
+      );
+      setHasActiveReservation(has);
+    } catch (e) {
+      console.warn("No se pudo verificar reservas activas:", e?.response?.data || e);
+      setHasActiveReservation(false);
+    } finally {
+      setCheckingActiveRes(false);
     }
   };
 
   useEffect(() => {
-    fetchHours();
-  }, [user]);
+    refreshHasActiveReservation();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, gridOwner?.id, isOwner]);
 
-  // ==============================
-  // Selección de slot y evento
-  // ==============================
+  // ====== Slot selection ======
   const onSelectSlot = (slotInfo) => {
-    const dayKey = moment(slotInfo.start).format("dddd").toLowerCase();
+    if (!isOwner) {
+      alert("Para reservar como cliente, hacé click en un turno disponible (bloque del calendario).");
+      return;
+    }
+    const dayKey = dayKeyENFromDate(slotInfo.start);
     const bloques = hours[dayKey] || [];
+    if (!bloques.length) {
+      alert(`No se atiende los ${EN2ES_TIT[dayKey] || dayKey}.`);
+      return;
+    }
     const timeStr = moment(slotInfo.start).format("HH:mm");
     const isValid = bloques.some((b) => timeStr >= b.from && timeStr < b.to);
-    if (!isValid) return alert("Horario fuera de los bloques definidos.");
-
+    if (!isValid) {
+      alert("Horario fuera de los bloques definidos.");
+      return;
+    }
     setSlotToAdd({ start: slotInfo.start, end: slotInfo.end });
     setFormAdd({
       servicioId: services[0]?.id || "",
@@ -89,31 +309,37 @@ export default function Turnos() {
     setShowAddModal(true);
   };
 
-  const onSelectEvent = (evt) => {
+  // ====== Click en EVENTO ======
+  const onSelectEvent = async (evt) => {
+  if (isOwner) {
     setSelectedEvent(evt);
     setShowEditModal(true);
-  };
+    return;
+  }
+  if (evt.reservado) {
+    alert("Ese turno ya está reservado.");
+    return;
+  }
+  if (hasActiveReservation) {
+    alert("Ya tenés una reserva activa con este emprendimiento.");
+    return;
+  }
+  setSelectedEvent(evt);
+  setShowReserveModal(true);
+};
 
-  // ==============================
-  // Agregar turno
-  // ==============================
+  // ====== Mutations ======
   const handleAddTurno = async () => {
     try {
-      await addTurno({
-        servicioId: formAdd.servicioId,
-        startISO: formAdd.startISO,
-      });
+      await addTurno({ servicioId: formAdd.servicioId, startISO: formAdd.startISO, cliente: formAdd.cliente || undefined });
       setShowAddModal(false);
       setFormAdd({ servicioId: services[0]?.id || "", cliente: "", startISO: "" });
     } catch (err) {
       console.error("Error agregando turno:", err);
-      alert("No se pudo agregar el turno. Revisa consola para detalles.");
+      alert("No se pudo agregar el turno. Revisá consola para detalles.");
     }
   };
 
-  // ==============================
-  // Editar turno
-  // ==============================
   const handleEditTurno = async () => {
     if (!selectedEvent) return;
     try {
@@ -126,7 +352,7 @@ export default function Turnos() {
     }
   };
 
-  const handleDeleteTurno = async () => {
+  const handleDeleteTurno = async ( ) => {
     if (!selectedEvent) return;
     if (!confirm("¿Eliminar este turno?")) return;
     try {
@@ -139,119 +365,359 @@ export default function Turnos() {
     }
   };
 
-  const turnosHoy = events.filter((e) => {
-    const start = normalizeEvent(e).start;
-    return moment(start).format("YYYY-MM-DD") === moment().format("YYYY-MM-DD");
+  // ====== Confirmar RESERVA (visitante) ======
+  const [reserving, setReserving] = useState(false);
+  const handleConfirmReserva = async () => {
+    if (!selectedEvent || !user?.id) return;
+    if (hasActiveReservation) {
+      alert("Ya tenés una reserva activa con este emprendimiento.");
+      return;
+    }
+    try {
+      setReserving(true);
+      await api.post("/reservas/", {
+        turno_id: selectedEvent.id,
+        usuario_id: user.id,
+      });
+      setShowReserveModal(false);
+      setSelectedEvent(null);
+      await refreshHasActiveReservation();
+      alert("¡Reserva confirmada!");
+      // refresco los turnos públicos para que ese turno desaparezca del listado, si el back lo marca como no disponible
+      if (!isOwner && gridOwner?.id) fetchPublicData(gridOwner.id);
+    } catch (err) {
+      console.error("Error creando reserva:", err?.response?.data || err);
+      const d = err?.response?.data;
+      alert(d?.detail || "No se pudo realizar la reserva.");
+    } finally {
+      setReserving(false);
+    }
+  };
+
+  // ====== Fuente de eventos según modo ======
+  const eventsForCalendar = useMemo(() => {
+  if (isOwner) return turnosForCalendar;
+  return (publicEvents || []).map((e) => {
+    const ne = normalizeEvent(e);
+    const baseTitle = ne.servicio?.nombre || "Servicio";
+    const title = e.reservado
+      ? `${baseTitle} — Reservado${e.cliente ? " (" + e.cliente + ")" : ""}`
+      : `${baseTitle}${e.cliente ? " — " + e.cliente : ""}`;
+    return {
+      ...ne,
+      reservado: !!e.reservado,
+      title,
+      color: e.reservado ? "#9ca3af" : "#1976d2", // gris si reservado
+    };
   });
+}, [isOwner, turnosForCalendar, publicEvents, normalizeEvent]);
+
+  const baseEventsForList = isOwner ? events : publicEvents;
+
+  // ====== Turnos del día seleccionado (visitante / dueño)
+  const turnosDelDia = (baseEventsForList || []).filter((e) =>
+    moment(normalizeEvent(e).start).isSame(moment(selectedDate), "day")
+  );
 
   const generarLinkTurno = () => {
-    const token = btoa(Date.now().toString());
-    const url = `${window.location.origin}/reserva/${token}`;
+    const code = gridOwner?.codigo_cliente || myEmp?.codigo_cliente;
+    if (!code) {
+      alert("Aún no hay código asignado a este emprendimiento.");
+      return;
+    }
+    const url = `${window.location.origin}/reservar/${code}`;
     navigator.clipboard.writeText(url);
     alert(`Link copiado al portapapeles:\n${url}`);
   };
 
+  // ====== AGENDA del día (solo dueño)
+  const [agendaFecha, setAgendaFecha] = useState(moment().format("YYYY-MM-DD"));
+  const [agendaItems, setAgendaItems] = useState([]);
+  const [loadingAgenda, setLoadingAgenda] = useState(false);
+
+  const fetchAgenda = async (fechaStr) => {
+    if (!gridOwner?.id || !isOwner) return;
+    setLoadingAgenda(true);
+    try {
+      const { data } = await api.get(`/emprendedores/${gridOwner.id}/reservas`, {
+        params: { fecha: fechaStr },
+      });
+      setAgendaItems(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("Error cargando agenda:", err);
+      setAgendaItems([]);
+    } finally {
+      setLoadingAgenda(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isOwner) fetchAgenda(agendaFecha);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOwner, gridOwner?.id, agendaFecha]);
+
+  useEffect(() => {
+    if (isOwner && selectedDate) {
+      setAgendaFecha(moment(selectedDate).format("YYYY-MM-DD"));
+    }
+  }, [isOwner, selectedDate]);
+
+  // ====== UI ======
   return (
-    <div className="grid md:grid-cols-[1fr_320px] gap-5 p-5 font-inter">
-      {/* Header */}
-      <header className="md:col-span-2 flex justify-between items-center mb-2">
-        <div>
-          <h1 className="text-xl text-gray-800">Turnera — Gestión de Turnos</h1>
-          <p className="text-gray-500 text-sm">Configuración de calendario.</p>
-        </div>
-        <div className="flex gap-2">
-          <button onClick={() => setShowServicesModal(true)} className="px-3 py-1 text-sm rounded bg-gray-200 text-gray-800">🧾 Servicios</button>
+    <div className="min-h-screen bg-gradient-to-b from-blue-600 to-cyan-400 p-5">
+      <div className="mx-auto max-w-6xl grid md:grid-cols-[1fr_320px] gap-5 font-inter">
 
-          {/* Botón horarios solo para emprendedores */}
-          {user?.emprendimiento_id && (
-            <button
-              onClick={() => setShowHoursModal(true)}
-              className="px-3 py-1 text-sm rounded bg-gray-200 text-gray-800"
-            >
-              🕒 Horarios
+        {/* Header */}
+        <header className="md:col-span-2 rounded-2xl shadow-xl bg-white/20 backdrop-blur-md border border-white/30 p-5 flex flex-wrap items-center justify-between text-white">
+          <div className="space-y-1">
+            <h1 className="text-2xl font-semibold drop-shadow">Turnera — Gestión de Turnos</h1>
+            <p className="text-white/90 text-sm">Configurá tus servicios, horarios y agenda.</p>
+            {isOwner && gridOwner?.codigo_cliente && (
+              <span className="inline-block mt-2 text-xs px-2 py-1 rounded-full bg-white/25">
+                Código público: <b>{gridOwner.codigo_cliente}</b>
+              </span>
+            )}
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {stillLoading && (
+              <span className="px-3 py-1 text-sm rounded bg-white/30 text-white">Cargando…</span>
+            )}
+            {!stillLoading && isOwner && (
+              <>
+                <button onClick={() => setShowServicesModal(true)} className="px-3 py-1 text-sm rounded-2xl bg-white/20 hover:bg-white/30 border border-white/40">
+                  🧾 Servicios
+                </button>
+                <button onClick={() => setShowHoursModal(true)} className="px-3 py-1 text-sm rounded-2xl bg-white/20 hover:bg-white/30 border border-white/40">
+                  🕒 Horarios
+                </button>
+                <button onClick={generarLinkTurno} className="px-3 py-1 text-sm rounded-2xl bg-white text-blue-700 shadow">
+                  🔗 Generar link
+                </button>
+              </>
+            )}
+          </div>
+        </header>
+
+        {/* Calendario */}
+        <main className="bg-white rounded-2xl shadow-xl p-4">
+          <Calendario
+            key={gridOwner?.id || "self"}            // fuerza remount al cambiar dueño
+            turnos={eventsForCalendar}
+            onSelectEvent={onSelectEvent}
+            onSelectSlot={onSelectSlot}
+            defaultView="week"
+            workingDayKeys={workingDayKeys}
+            workingHours={hours}
+            onDateChange={setSelectedDate}
+          />
+        </main>
+
+        {/* Sidebar */}
+        <aside className="space-y-4">
+          <div className="rounded-2xl shadow-xl bg-white/90 border border-gray-100 p-4 flex flex-col gap-3">
+            <h3 className="text-sm font-semibold">Acciones rápidas</h3>
+            <p className="text-gray-600 text-xs">
+              {isOwner
+                ? "Seleccioná un turno en el calendario para editar o cancelar."
+                : "Elegí un turno disponible (bloque del calendario) para confirmarlo."
+              }
+            </p>
+
+            {stillLoading && (
+              <span className="px-3 py-1 text-sm rounded bg-gray-100 text-gray-500 w-fit">Cargando…</span>
+            )}
+
+            {!stillLoading && isOwner && (
+              <div className="flex flex-col gap-2">
+                <button className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm shadow" onClick={() => setShowAddModal(true)}>➕ Agregar turno</button>
+                <button className="px-3 py-2 rounded-xl bg-yellow-400 hover:bg-yellow-500 text-gray-900 text-sm shadow" onClick={() => { if (!selectedEvent) return alert("Seleccioná un turno en el calendario."); setShowEditModal(true); }}>✏️ Editar / Posponer</button>
+                <button className="px-3 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm shadow" onClick={handleDeleteTurno}>❌ Cancelar</button>
+              </div>
+            )}
+
+            {!stillLoading && !isOwner && gridOwner && (
+              <div className="text-xs text-gray-600">
+                {checkingActiveRes
+                  ? "Verificando tus reservas…"
+                  : hasActiveReservation
+                    ? "Ya tenés una reserva activa con este emprendimiento."
+                    : "Hacé click en un turno del calendario para reservarlo."}
+              </div>
+            )}
+
+            {!stillLoading && !gridOwner && (
+              <div className="text-sm text-red-600">No se encontró el emprendimiento.</div>
+            )}
+          </div>
+
+          {/* Agenda / Turnos del día */}
+          {isOwner ? (
+            <div className="rounded-2xl shadow-xl bg-white/90 border border-gray-100 p-4">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <h3 className="text-sm font-semibold text-gray-800">Agenda del día</h3>
+                <div className="flex items-center gap-2">
+                  <button
+                    className="px-2 py-1 text-xs rounded bg-white ring-1 ring-gray-200 hover:bg-gray-50"
+                    onClick={() => setAgendaFecha(moment(agendaFecha).subtract(1, "day").format("YYYY-MM-DD"))}
+                    title="Día anterior"
+                  >
+                    ◀
+                  </button>
+                  <button
+                    className="px-2 py-1 text-xs rounded bg-white ring-1 ring-gray-200 hover:bg-gray-50"
+                    onClick={() => setAgendaFecha(moment().format("YYYY-MM-DD"))}
+                    title="Hoy"
+                  >
+                    Hoy
+                  </button>
+                  <button
+                    className="px-2 py-1 text-xs rounded bg-white ring-1 ring-gray-200 hover:bg-gray-50"
+                    onClick={() => setAgendaFecha(moment(agendaFecha).add(1, "day").format("YYYY-MM-DD"))}
+                    title="Día siguiente"
+                  >
+                    ▶
+                  </button>
+                </div>
+              </div>
+              <div className="text-xs text-gray-500 mb-3">
+                {moment(agendaFecha).format("dddd DD/MM/YYYY")}
+              </div>
+
+              {loadingAgenda ? (
+                <div className="text-sm text-gray-500">Cargando…</div>
+              ) : agendaItems.length === 0 ? (
+                <p className="text-gray-500 text-sm">No hay reservas para este día.</p>
+              ) : (
+                <ul className="divide-y divide-gray-100">
+                  {agendaItems.map((item) => (
+                    <li key={item.id} className="flex gap-2 p-2 rounded hover:bg-gray-50">
+                      <div className="w-20 shrink-0 font-semibold text-gray-800">
+                        {moment(item.fecha_hora_inicio).format("HH:mm")}–{moment(item.fecha_hora_fin).format("HH:mm")}
+                      </div>
+                      <div className="flex-1">
+                        <div className="font-semibold text-gray-800">{item.servicio_nombre}</div>
+                        <div className="text-gray-600 text-sm">
+                          {item.cliente_nombre}
+                          {item.precio ? <span className="ml-2 text-gray-400">• ${item.precio}</span> : null}
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ) : (
+            <div className="rounded-2xl shadow-xl bg-white/90 border border-gray-100 p-4">
+              <h3 className="text-sm font-semibold">
+                Turnos del {moment(selectedDate).format("DD/MM/YYYY")}
+              </h3>
+              {turnosDelDia.length === 0 ? (
+                <p className="text-gray-500 text-xs mt-2">No hay turnos para este día</p>
+              ) : (
+                <ul className="divide-y divide-gray-100 mt-2">
+                  {turnosDelDia.map((t) => {
+                    const ne = normalizeEvent(t);
+                    return (
+                      <li
+                        key={t.id}
+                        className="flex gap-2 p-2 rounded-lg bg-gray-50 hover:bg-gray-100 cursor-pointer"
+                        onClick={() => { setSelectedEvent(t); setShowReserveModal(true); }}
+                      >
+                        <div className="w-20 font-semibold text-gray-800">
+                          {moment(ne.start).format("HH:mm")}–{moment(ne.end).format("HH:mm")}
+                        </div>
+                        <div className="flex flex-col">
+                          <div className="font-semibold text-gray-800">{t.servicio?.nombre}</div>
+                          <div className="text-gray-500 text-sm">{t.cliente || ""}</div>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          )}
+        </aside>
+
+        {/* Modales */}
+        {showAddModal && isOwner && (
+          <Modal onClose={() => setShowAddModal(false)}>
+            <h3 className="text-lg font-semibold mb-2">Agregar turno</h3>
+            <label className="text-sm text-gray-700">Servicio</label>
+            <select className="w-full border rounded p-2 mb-2" value={formAdd.servicioId} onChange={(e) => setFormAdd({ ...formAdd, servicioId: e.target.value })}>
+              {services.map(s => <option key={s.id} value={s.id}>{s.nombre} — {s.duracion} min</option>)}
+            </select>
+            <label className="text-sm text-gray-700">Cliente (opcional)</label>
+            <input className="w-full border rounded p-2 mb-2" placeholder="Nombre del cliente" value={formAdd.cliente} onChange={(e) => setFormAdd({ ...formAdd, cliente: e.target.value })}/>
+            <label className="text-sm text-gray-700">Fecha y hora inicio</label>
+            <input type="datetime-local" className="w-full border rounded p-3 mb-3" value={formAdd.startISO} onChange={(e) => setFormAdd({ ...formAdd, startISO: e.target.value })}/>
+            <button onClick={handleAddTurno} className="w-full py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow">
+              Agregar turno
             </button>
-          )}
+          </Modal>
+        )}
 
-          <button onClick={generarLinkTurno} className="px-3 py-1 text-sm rounded bg-green-600 text-white">🔗 Generar link turno</button>
-        </div>
-      </header>
+        {showEditModal && selectedEvent && isOwner && (
+          <Modal onClose={() => setShowEditModal(false)}>
+            <h3 className="text-lg font-semibold mb-2">Editar turno</h3>
+            <label className="text-sm text-gray-700">Cliente</label>
+            <input className="w-full border rounded p-2 mb-3" value={selectedEvent.cliente || ""} onChange={(e) => setSelectedEvent({ ...selectedEvent, cliente: e.target.value })}/>
+            <div className="flex gap-2">
+              <button onClick={handleEditTurno} className="flex-1 py-2 rounded-xl bg-yellow-400 hover:bg-yellow-500 text-gray-900 shadow">Guardar cambios</button>
+              <button onClick={handleDeleteTurno} className="flex-1 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white shadow">Cancelar turno</button>
+            </div>
+          </Modal>
+        )}
 
-      {/* Calendario */}
-      <main className="bg-white p-4 rounded-xl shadow-md">
-        <Calendario turnos={turnosForCalendar} onSelectEvent={onSelectEvent} onSelectSlot={onSelectSlot} defaultView="week"/>
-      </main>
+        {showReserveModal && selectedEvent && !isOwner && (
+          <Modal onClose={() => setShowReserveModal(false)}>
+            <h3 className="text-lg font-semibold mb-3">Confirmar reserva</h3>
+            <div className="text-sm text-gray-700 mb-1">Servicio</div>
+            <div className="mb-2 font-semibold">
+              {selectedEvent?.servicio?.nombre || "Servicio"} {selectedEvent?.servicio?.duracion ? `— ${selectedEvent.servicio.duracion} min` : ""}
+            </div>
+            <div className="text-sm text-gray-700 mb-1">Fecha y hora</div>
+            <div className="mb-4">
+              {moment(normalizeEvent(selectedEvent).start).format("dddd DD/MM/YYYY HH:mm")} hs
+            </div>
+            {selectedEvent?.precio != null && (
+              <>
+                <div className="text-sm text-gray-700 mb-1">Precio</div>
+                <div className="mb-4">${selectedEvent.precio}</div>
+              </>
+            )}
+            <button
+              disabled={reserving || hasActiveReservation}
+              onClick={handleConfirmReserva}
+              className="w-full py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white shadow"
+            >
+              {reserving ? "Reservando..." : "Confirmar reserva"}
+            </button>
+            {hasActiveReservation && (
+              <p className="text-xs text-red-600 mt-2">Ya tenés una reserva activa con este emprendimiento.</p>
+            )}
+          </Modal>
+        )}
 
-      {/* Sidebar */}
-      <aside className="space-y-4">
-        <div className="bg-white p-4 rounded-xl shadow-md flex flex-col gap-2">
-          <h3 className="text-sm font-semibold">Acciones rápidas</h3>
-          <p className="text-gray-500 text-xs">Seleccioná un turno en el calendario para editar o cancelar.</p>
-          <div className="flex flex-col gap-2">
-            <button className="px-3 py-1 rounded bg-blue-600 text-white text-sm" onClick={() => setShowAddModal(true)}>➕ Agregar turno</button>
-            <button className="px-3 py-1 rounded bg-yellow-500 text-gray-800 text-sm" onClick={() => { if (!selectedEvent) return alert("Seleccione un turno en el calendario."); setShowEditModal(true); }}>✏️ Editar / Posponer</button>
-            <button className="px-3 py-1 rounded bg-red-600 text-white text-sm" onClick={handleDeleteTurno}>❌ Cancelar</button>
-          </div>
-        </div>
+        {showServicesModal && (
+          <ServicesModal
+            emprendedorId={gridOwner?.id}
+            onClose={() => setShowServicesModal(false)}
+            onServiceAdded={refreshServices}
+          />
+        )}
 
-        <div className="bg-white p-4 rounded-xl shadow-md">
-          <h3 className="text-sm font-semibold">Turnos hoy ({moment().format("DD/MM/YYYY")})</h3>
-          {turnosHoy.length === 0 ? <p className="text-gray-500 text-xs">No hay turnos para hoy</p> : (
-            <ul className="divide-y divide-gray-100">
-              {turnosHoy.map((t) => {
-                const ne = normalizeEvent(t);
-                return (
-                  <li key={t.id} className="flex gap-2 p-2 rounded bg-gray-50 cursor-pointer hover:bg-gray-100" onClick={() => { setSelectedEvent(t); setShowEditModal(true); }}>
-                    <div className="w-16 font-semibold text-gray-800">{moment(ne.start).format("HH:mm")} - {moment(ne.end).format("HH:mm")}</div>
-                    <div className="flex flex-col">
-                      <div className="font-semibold text-gray-800">{t.servicio?.nombre}</div>
-                      <div className="text-gray-500 text-sm">{t.cliente}</div>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
-      </aside>
-
-      {/* Modales */}
-      {showAddModal && (
-        <Modal onClose={() => setShowAddModal(false)}>
-          <h3 className="text-lg font-semibold mb-2">Agregar turno</h3>
-          <label className="text-sm text-gray-700">Servicio</label>
-          <select className="w-full border rounded p-2 mb-2" value={formAdd.servicioId} onChange={(e) => setFormAdd({ ...formAdd, servicioId: e.target.value })}>
-            {services.map(s => <option key={s.id} value={s.id}>{s.nombre} — {s.duracion} min</option>)}
-          </select>
-          <label className="text-sm text-gray-700">Cliente (opcional)</label>
-          <input className="w-full border rounded p-2 mb-2" placeholder="Nombre del cliente" value={formAdd.cliente} onChange={(e) => setFormAdd({ ...formAdd, cliente: e.target.value })}/>
-          <label className="text-sm text-gray-700">Fecha y hora inicio</label>
-          <input type="datetime-local" className="w-full border rounded p-2 mb-2" value={formAdd.startISO} onChange={(e) => setFormAdd({ ...formAdd, startISO: e.target.value })}/>
-          <button onClick={handleAddTurno} className="w-full py-2 bg-green-600 text-white rounded">Agregar turno</button>
-        </Modal>
-      )}
-
-      {showEditModal && selectedEvent && (
-        <Modal onClose={() => setShowEditModal(false)}>
-          <h3 className="text-lg font-semibold mb-2">Editar turno</h3>
-          <label className="text-sm text-gray-700">Cliente</label>
-          <input className="w-full border rounded p-2 mb-2" value={selectedEvent.cliente || ""} onChange={(e) => setSelectedEvent({ ...selectedEvent, cliente: e.target.value })}/>
-          <div className="flex gap-2">
-            <button onClick={handleEditTurno} className="flex-1 py-2 bg-yellow-500 text-white rounded">Guardar cambios</button>
-            <button onClick={handleDeleteTurno} className="flex-1 py-2 bg-red-600 text-white rounded">Cancelar turno</button>
-          </div>
-        </Modal>
-      )}
-
-      {showServicesModal && <ServicesModal emprendedorId={user?.id} services={services} onClose={() => setShowServicesModal(false)} refreshServices={refreshServices}/>}
-
-      {showHoursModal && (
-        <HoursModal
-          hours={hours}
-          emprendimientoId={user?.emprendimiento_id}
-          onClose={() => setShowHoursModal(false)}
-          refreshHours={fetchHours}
-        />
-      )}
+        {showHoursModal && (
+          <HoursModal
+            hours={hours}
+            emprendimientoId={gridOwner?.id}
+            onClose={() => setShowHoursModal(false)}
+            refreshHours={fetchHours}
+            onSaved={fetchHours}
+          />
+        )}
+      </div>
     </div>
   );
 }

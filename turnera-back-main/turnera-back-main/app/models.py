@@ -28,6 +28,9 @@ class Usuario(Base):
     __tablename__ = "usuarios"
 
     id = Column(Integer, primary_key=True, index=True)
+    nombre = Column(String, nullable=True)
+    apellido = Column(String, nullable=True)
+    dni = Column(String, nullable=True, unique=True)
     email = Column(String, unique=True, index=True, nullable=False)
     username = Column(String, unique=True, index=True, nullable=False)
     password = Column(String, nullable=False)
@@ -48,14 +51,22 @@ class Emprendedor(Base):
     id = Column(Integer, primary_key=True, index=True)
     usuario_id = Column(Integer, ForeignKey("usuarios.id"), unique=True, nullable=False)
 
-    # nombre es NOT NULL; apellido y negocio ahora pueden ser NULL para tu bootstrap
-    nombre = Column(String, nullable=False)
-    apellido = Column(String, nullable=True)
+    # Datos del comercio (compatibilidad: pueden ser NULL en DB antigua)
     negocio = Column(String, nullable=True)
     descripcion = Column(Text, nullable=True)
+    rubro = Column(String, nullable=True)
+    direccion = Column(String, nullable=True)
+    telefono = Column(String, nullable=True)
+    instagram = Column(String, nullable=True)
+    web = Column(String, nullable=True)
+    email_contacto = Column(String, nullable=True)
+    cuit = Column(String, nullable=True)
+    foto_url = Column(String, nullable=True)
 
-    codigo_cliente = Column(String, unique=True, nullable=True)
+    # Código público único para reservar por código
+    codigo_cliente = Column(String, unique=True, index=True, nullable=True)
 
+    # Relaciones
     usuario = relationship("Usuario", back_populates="emprendedor")
     servicios = relationship(
         "Servicio", back_populates="emprendedor", cascade="all, delete-orphan"
@@ -75,7 +86,7 @@ class Servicio(Base):
     nombre = Column(String, nullable=False)
     descripcion = Column(Text, nullable=True)
 
-    # NUEVO: usado por tu front
+    # Usado por el front
     duracion = Column(Integer, nullable=False, default=0)  # minutos
     precio = Column(Float, nullable=True, default=0)
 

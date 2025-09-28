@@ -1,217 +1,321 @@
 // src/pages/UpdateUserForm.jsx
-import React, { useState, useContext, useEffect } from "react";
+import React, { useState, useContext, useEffect, useRef } from "react";
 import { UserContext } from "../context/UserContext";
-import api from "../components/api"; // tu instancia de axios apuntando a turnera-back-main
+import api from "../components/api";
+import Button from "../components/Button";
+import Input from "../components/Input";
 
 export default function UpdateUserForm() {
-  const { user, login } = useContext(UserContext);
+  const { user, setUser } = useContext(UserContext);
+  const fileInputRef = useRef(null);
 
   const [formData, setFormData] = useState({
-    userName: "",
-    bio: "",
-    firstName: "",
-    lastName: "",
+    username: "",
     email: "",
-    currentPassword: "",
-    newPassword: "",
-    confirmPassword: "",
-    avatar: null,
+    nombre: "",
+    apellido: "",
+    dni: "",
   });
 
+  const [avatarFile, setAvatarFile] = useState(null);
+  const [avatarPreview, setAvatarPreview] = useState("");
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("");
+  const [mensaje, setMensaje] = useState("");
 
-  // Cargar datos del usuario al montar el componente
+  // Autoocultar mensaje a los 3s
   useEffect(() => {
-    if (user) {
-      setFormData({
-        userName: user.userName || "",
-        bio: user.bio || "",
-        firstName: user.firstName || "",
-        lastName: user.lastName || "",
-        email: user.email || "",
-        currentPassword: "",
-        newPassword: "",
-        confirmPassword: "",
-        avatar: null,
-      });
-    }
+    if (!mensaje) return;
+    const t = setTimeout(() => setMensaje(""), 3000);
+    return () => clearTimeout(t);
+  }, [mensaje]);
+
+  // Cargar datos desde perfil
+  useEffect(() => {
+    if (!user?.id) return;
+    (async () => {
+      try {
+        const res = await api.get("/usuarios/perfil");
+        const u = res.data || {};
+        setFormData({
+          username: u.username ?? user.username ?? "",
+          email: u.email ?? user.email ?? "",
+          nombre: u.nombre ?? "",
+          apellido: u.apellido ?? "",
+          dni: u.dni ?? "",
+        });
+        if (u.avatar_url) setAvatarPreview(u.avatar_url);
+      } catch {
+        setFormData({
+          username: user?.username || "",
+          email: user?.email || "",
+          nombre: user?.nombre || "",
+          apellido: user?.apellido || "",
+          dni: user?.dni || "",
+        });
+      }
+    })();
   }, [user]);
 
-  const handleChange = (e) => {
-    const { name, value, files } = e.target;
-    setFormData((prev) => ({
-      ...prev,
-      [name]: files ? files[0] : value,
-    }));
+  const onChange = (e) => {
+    const { name, value } = e.target;
+    setFormData((p) => ({ ...p, [name]: value }));
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setMessage("");
+  const onAvatarChange = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) {
+      setAvatarFile(null);
+      setAvatarPreview("");
+      return;
+    }
+    setAvatarFile(file);
+    const reader = new FileReader();
+    reader.onload = () => setAvatarPreview(reader.result);
+    reader.readAsDataURL(file);
+  };
 
+  const uploadAvatarIfNeeded = async (userId) => {
+    if (!avatarFile) return;
+    const fd = new FormData();
+    fd.append("avatar", avatarFile);
     try {
-      const payload = new FormData();
-      for (let key in formData) {
-        if (formData[key]) payload.append(key, formData[key]);
-      }
-
-      // PUT a tu endpoint de actualización de usuario
-      const res = await api.put(`/users/${user.id}`, payload, {
+      const res = await api.post(`/usuarios/${userId}/avatar`, fd, {
         headers: { "Content-Type": "multipart/form-data" },
       });
+      if (res.data?.avatar_url) setAvatarPreview(res.data.avatar_url);
+    } catch (err) {
+      console.warn("Subida de avatar opcional falló:", err?.response?.data || err);
+    }
+  };
 
-      // Actualizo contexto global
-      login(res.data);
+  const onSubmit = async (e) => {
+    e.preventDefault();
+    if (!user?.id) return;
+    setLoading(true);
+    setMensaje("");
 
-      setMessage("Perfil actualizado correctamente");
+    try {
+      const payload = {
+        username: formData.username.trim(),
+        email: formData.email.trim(),
+        nombre: formData.nombre.trim() || null,
+        apellido: formData.apellido.trim() || null,
+        dni: formData.dni.trim() || null,
+      };
+
+      const { data } = await api.put(`/usuarios/${user.id}`, payload);
+      await uploadAvatarIfNeeded(user.id);
+
+      setUser({
+        ...user,
+        username: data.username,
+        email: data.email,
+        nombre: data.nombre,
+        apellido: data.apellido,
+        dni: data.dni,
+      });
+
+      setMensaje("Perfil actualizado correctamente.");
     } catch (error) {
       console.error(error);
-      setMessage("Error al actualizar perfil");
+      const msg = error?.response?.data?.detail || "Error al actualizar el perfil.";
+      setMensaje(msg);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="container mx-auto p-4 z-10 bg-white">
-      <h1 className="text-3xl font-bold text-black mb-6">Actualizar Perfil</h1>
-      {message && (
-        <div className={`mb-4 p-2 rounded ${message.includes("Error") ? "bg-red-200 text-red-800" : "bg-green-200 text-green-800"}`}>
-          {message}
-        </div>
-      )}
-      <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-6">
-        {/* Username */}
-        <div className="p-2">
-          <input
-            type="text"
-            id="userName"
-            name="userName"
-            placeholder="Username"
-            value={formData.userName}
-            onChange={handleChange}
-            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-[#8c0327] focus:ring-[#8c0327] focus:ring-opacity-50 p-2 bg-[#f6f6f6]"
-          />
-        </div>
+    <div className="relative w-full max-w-3xl mx-auto mt-8">
+      {/* Encabezado */}
+      <div className="mb-6 text-center">
+        <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight bg-gradient-to-r from-blue-700 via-blue-600 to-emerald-400 bg-clip-text text-transparent">
+          Editar perfil
+        </h1>
+        <p className="text-sm text-gray-600 mt-1">
+          Mantené tu información al día. Podés actualizar tu foto, nombre y contacto.
+        </p>
+      </div>
 
-        {/* Bio y avatar */}
-        <div className="p-2 grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div>
-            <textarea
-              id="bio"
-              name="bio"
-              rows="3"
-              placeholder="User Biography"
-              value={formData.bio}
-              onChange={handleChange}
-              className="block w-full h-48 rounded-md border-gray-300 shadow-sm focus:border-[#8c0327] focus:ring-[#8c0327] focus:ring-opacity-50 p-2 bg-[#f6f6f6]"
-            />
-          </div>
-          <div>
-            <label
-              htmlFor="avatar"
-              className="block w-full h-48 border-2 border-dashed border-gray-300 rounded-md cursor-pointer flex flex-col items-center justify-center bg-[#f6f6f6] hover:bg-gray-50"
-            >
-              <div className="text-center">
-                <div className="mb-2">
-                  <span className="bg-[#8c0327] hover:bg-[#6b0220] text-white rounded-full py-2 px-4 inline-block">
-                    Select from the computer
-                  </span>
-                </div>
-                <p className="text-gray-500">or drag photo here</p>
-                <p className="text-gray-500 text-sm mt-1">PNG, JPG, SVG</p>
+      {/* Card con borde degradé y glass interior */}
+      <div className="relative rounded-2xl p-[1px] bg-gradient-to-br from-blue-700 via-blue-600 to-emerald-400 shadow-2xl">
+        {/* Brillos metálicos */}
+        <div className="pointer-events-none absolute -top-12 -right-12 h-40 w-40 rounded-full bg-white/20 blur-2xl" />
+        <div className="pointer-events-none absolute -bottom-16 -left-16 h-48 w-48 rounded-full bg-white/10 blur-3xl" />
+
+        <div className="relative rounded-2xl bg-white/85 backdrop-blur-md">
+          {/* Barra superior sutil */}
+          <div className="h-1.5 w-full rounded-t-2xl bg-gradient-to-r from-blue-500 via-blue-400 to-emerald-300" />
+
+          <div className="p-6 md:p-8">
+            {/* Mensaje */}
+            {typeof mensaje === "string" && mensaje && (
+              <div
+                className={`mb-5 rounded-xl px-4 py-2 text-sm font-medium ${
+                  /error|incorrecta|en uso|registrado|422|400/i.test(mensaje)
+                    ? "bg-red-50 text-red-700 ring-1 ring-red-200"
+                    : "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                }`}
+              >
+                {mensaje}
               </div>
-            </label>
-            <input
-              id="avatar"
-              name="avatar"
-              type="file"
-              accept="image/*"
-              className="sr-only"
-              onChange={handleChange}
-            />
+            )}
+
+            <form onSubmit={onSubmit} className="grid grid-cols-1 gap-6">
+              {/* Avatar + Campos */}
+              <div className="grid grid-cols-1 md:grid-cols-[auto,1fr] gap-6 items-start">
+                {/* Avatar */}
+                <div className="flex flex-col items-center gap-3">
+                  <div className="relative">
+                    {/* Borde degradé */}
+                    <div className="rounded-full p-[2px] bg-gradient-to-br from-blue-600 via-blue-500 to-emerald-400">
+                      <div className="h-28 w-28 rounded-full overflow-hidden bg-white/60 backdrop-blur-sm ring-1 ring-white/40">
+                        {avatarPreview ? (
+                          <img
+                            src={avatarPreview}
+                            alt="avatar"
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <div className="grid h-full w-full place-items-center text-gray-400 text-xs">
+                            Sin foto
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    {/* Destello */}
+                    <div className="pointer-events-none absolute -top-2 -right-2 h-6 w-6 rounded-full bg-white/50 blur-md" />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="group relative inline-flex items-center justify-center gap-2 rounded-full bg-gradient-to-r from-blue-500 to-emerald-400 px-4 py-2 text-sm font-semibold text-white shadow-lg ring-1 ring-blue-300/40 hover:scale-[1.02] transition"
+                  >
+                    <span className="absolute inset-0 rounded-full bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    Subir foto
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      className="h-4 w-4"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.5"
+                    >
+                      <path d="M12 5v14M5 12h14" />
+                    </svg>
+                  </button>
+
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={onAvatarChange}
+                    className="hidden"
+                  />
+                </div>
+
+                {/* Inputs */}
+                <div className="grid gap-4">
+                  <div className="grid gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="relative">
+                        <Input
+                          name="username"
+                          value={formData.username}
+                          onChange={onChange}
+                          placeholder="Usuario"
+                          className="w-full rounded-xl border border-gray-200 bg-white/80 px-4 py-2.5 shadow-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+                          required
+                        />
+                        <span className="pointer-events-none absolute -top-2 left-3 bg-white/80 px-2 text-xs font-semibold text-blue-700 rounded-full">
+                          Usuario
+                        </span>
+                      </div>
+
+                      <div className="relative">
+                        <Input
+                          type="email"
+                          name="email"
+                          value={formData.email}
+                          onChange={onChange}
+                          placeholder="Correo electrónico"
+                          className="w-full rounded-xl border border-gray-200 bg-white/80 px-4 py-2.5 shadow-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+                          required
+                        />
+                        <span className="pointer-events-none absolute -top-2 left-3 bg-white/80 px-2 text-xs font-semibold text-blue-700 rounded-full">
+                          Correo
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="relative">
+                        <Input
+                          name="nombre"
+                          value={formData.nombre}
+                          onChange={onChange}
+                          placeholder="Nombre"
+                          className="w-full rounded-xl border border-gray-200 bg-white/80 px-4 py-2.5 shadow-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+                        />
+                        <span className="pointer-events-none absolute -top-2 left-3 bg-white/80 px-2 text-xs font-semibold text-blue-700 rounded-full">
+                          Nombre
+                        </span>
+                      </div>
+
+                      <div className="relative">
+                        <Input
+                          name="apellido"
+                          value={formData.apellido}
+                          onChange={onChange}
+                          placeholder="Apellido"
+                          className="w-full rounded-xl border border-gray-200 bg-white/80 px-4 py-2.5 shadow-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+                        />
+                        <span className="pointer-events-none absolute -top-2 left-3 bg-white/80 px-2 text-xs font-semibold text-blue-700 rounded-full">
+                          Apellido
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="relative">
+                      <Input
+                        name="dni"
+                        value={formData.dni}
+                        onChange={onChange}
+                        placeholder="DNI"
+                        className="w-full rounded-xl border border-gray-200 bg-white/80 px-4 py-2.5 shadow-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+                      />
+                      <span className="pointer-events-none absolute -top-2 left-3 bg-white/80 px-2 text-xs font-semibold text-blue-700 rounded-full">
+                        DNI
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* CTA */}
+              <div className="pt-2">
+                <Button
+                  type="submit"
+                  disabled={loading}
+                  className="
+                    w-full rounded-xl bg-gradient-to-r from-blue-500 to-emerald-400
+                    text-white font-bold py-3 px-4 shadow-lg ring-1 ring-blue-300/40
+                    hover:scale-[1.01] hover:shadow-xl transition
+                    disabled:opacity-60 disabled:cursor-not-allowed
+                  "
+                >
+                  {loading ? "Guardando..." : "Guardar cambios"}
+                </Button>
+
+                <p className="mt-3 text-center text-xs text-gray-600">
+                  ¿Cambiar contraseña? Andá a la pestaña <strong>Seguridad</strong>.
+                </p>
+              </div>
+            </form>
           </div>
         </div>
-
-        {/* Nombres y Email */}
-        <div className="p-2 grid grid-cols-1 md:grid-cols-2 gap-6">
-          <input
-            type="text"
-            id="firstName"
-            name="firstName"
-            placeholder="First name"
-            value={formData.firstName}
-            onChange={handleChange}
-            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-[#8c0327] focus:ring-[#8c0327] focus:ring-opacity-50 p-2 bg-[#f6f6f6]"
-          />
-          <input
-            type="text"
-            id="lastName"
-            name="lastName"
-            placeholder="Last name"
-            value={formData.lastName}
-            onChange={handleChange}
-            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-[#8c0327] focus:ring-[#8c0327] focus:ring-opacity-50 p-2 bg-[#f6f6f6]"
-          />
-        </div>
-        <div className="p-2">
-          <input
-            type="email"
-            id="email"
-            name="email"
-            placeholder="Email"
-            value={formData.email}
-            onChange={handleChange}
-            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-[#8c0327] focus:ring-[#8c0327] focus:ring-opacity-50 p-2 bg-[#f6f6f6]"
-          />
-        </div>
-
-        {/* Passwords */}
-        <div className="p-2">
-          <input
-            type="password"
-            id="currentPassword"
-            name="currentPassword"
-            placeholder="Current password"
-            value={formData.currentPassword}
-            onChange={handleChange}
-            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-[#8c0327] focus:ring-[#8c0327] focus:ring-opacity-50 p-2 bg-[#f6f6f6]"
-          />
-        </div>
-        <div className="p-2 grid grid-cols-1 md:grid-cols-2 gap-6">
-          <input
-            type="password"
-            id="newPassword"
-            name="newPassword"
-            placeholder="New password"
-            value={formData.newPassword}
-            onChange={handleChange}
-            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-[#8c0327] focus:ring-[#8c0327] focus:ring-opacity-50 p-2 bg-[#f6f6f6]"
-          />
-          <input
-            type="password"
-            id="confirmPassword"
-            name="confirmPassword"
-            placeholder="Confirmation password"
-            value={formData.confirmPassword}
-            onChange={handleChange}
-            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-[#8c0327] focus:ring-[#8c0327] focus:ring-opacity-50 p-2 bg-[#f6f6f6]"
-          />
-        </div>
-
-        {/* Submit */}
-        <div className="col-span-full mt-6 p-2">
-          <button
-            type="submit"
-            disabled={loading}
-            className="block w-full bg-[#8c0327] hover:bg-[#6b0220] text-white font-bold py-3 px-4 rounded-full"
-          >
-            {loading ? "Guardando..." : "Guardar Cambios"}
-          </button>
-        </div>
-      </form>
+      </div>
     </div>
   );
 }

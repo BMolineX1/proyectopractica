@@ -2,7 +2,13 @@ import React, { useState, useEffect } from "react";
 import api from "../components/api";
 import Modal from "./Modal";
 
-export default function HoursModal({ hours, onClose, refreshHours, emprendimientoId }) {
+export default function HoursModal({
+  hours,
+  onClose,
+  refreshHours,
+  emprendimientoId,
+  applyHoursToUI, // ✅ NUEVO
+}) {
   const [localHours, setLocalHours] = useState({});
 
   const dias = {
@@ -15,11 +21,18 @@ export default function HoursModal({ hours, onClose, refreshHours, emprendimient
     sunday: "Domingo",
   };
 
+  const ensureAllDays = (obj) => ({
+    monday: Array.isArray(obj?.monday) ? obj.monday : [],
+    tuesday: Array.isArray(obj?.tuesday) ? obj.tuesday : [],
+    wednesday: Array.isArray(obj?.wednesday) ? obj.wednesday : [],
+    thursday: Array.isArray(obj?.thursday) ? obj.thursday : [],
+    friday: Array.isArray(obj?.friday) ? obj.friday : [],
+    saturday: Array.isArray(obj?.saturday) ? obj.saturday : [],
+    sunday: Array.isArray(obj?.sunday) ? obj.sunday : [],
+  });
+
   useEffect(() => {
-    // clonar para editar localmente
-    setLocalHours(hours || {
-      monday: [], tuesday: [], wednesday: [], thursday: [], friday: [], saturday: [], sunday: [],
-    });
+    setLocalHours(ensureAllDays(hours || {}));
   }, [hours]);
 
   const handleChange = (day, index, field, value) => {
@@ -49,31 +62,50 @@ export default function HoursModal({ hours, onClose, refreshHours, emprendimient
   const handleSave = async () => {
     try {
       if (!emprendimientoId) {
-  alert("Aún no se detectó tu emprendimiento. Cerrá y reintentá en unos segundos.");
-  return;
-}
-      // armamos payload: [{dia_semana, hora_inicio, hora_fin}]
+        alert("Aún no se detectó el dueño de la grilla.");
+        return;
+      }
+
       const payload = [];
-      Object.keys(localHours).forEach((dayKey) => {
-        const day = dias[dayKey];
+      const invalids = [];
+      Object.keys(dias).forEach((dayKey) => {
+        const label = dias[dayKey];
         const bloques = localHours[dayKey] || [];
-        bloques.forEach((b) => {
-          if (b.from && b.to) {
-            payload.push({
-              dia_semana: day,
-              hora_inicio: b.from,
-              hora_fin: b.to,
-            });
-          }
+        bloques.forEach((b, i) => {
+          const from = (b?.from || "").trim();
+          const to = (b?.to || "").trim();
+          if (!from || !to) return;
+          if (from >= to) invalids.push(`${label} (bloque ${i + 1})`);
+          payload.push({ dia_semana: label, hora_inicio: from, hora_fin: to });
         });
       });
 
-      await api.put(`/emprendedores/${emprendimientoId}/horarios:replace`, payload);
+      if (invalids.length) {
+        alert("Revisá estos bloques (inicio < fin):\n• " + invalids.join("\n• "));
+        return;
+      }
+      if (payload.length === 0) {
+        const ok = confirm("No hay bloques definidos. Se eliminarán todos los horarios. ¿Continuar?");
+        if (!ok) return;
+      }
+
+      try {
+        await api.put(`/emprendedores/${emprendimientoId}/horarios:replace`, payload);
+      } catch (err) {
+        if (err?.response?.status === 404) {
+          await api.put(`/emprendedores/${emprendimientoId}/horarios/replace`, payload);
+        } else {
+          throw err;
+        }
+      }
+
+      // ✅ aplicar en vivo
+      applyHoursToUI?.(ensureAllDays(localHours));
       refreshHours?.();
-      onClose();
+      onClose?.();
     } catch (error) {
       console.error("Error al guardar horarios:", error);
-      alert("Error al guardar horarios");
+      alert(error?.response?.data?.detail || "No se pudieron guardar los horarios");
     }
   };
 

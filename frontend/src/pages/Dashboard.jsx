@@ -75,19 +75,7 @@ export default function Dashboard() {
       {/* Main Content */}
       <div className="ml-64 flex-1 p-6">
         {/* Header */}
-        <header className="bg-white shadow-sm border-b border-gray-200 mb-6">
-          <div className="flex items-center justify-between px-6 py-4">
-            <h1 className="text-2xl font-semibold text-gray-900">Panel de Control</h1>
-            <div className="flex items-center space-x-4">
-              <button className="relative p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg">
-                <FontAwesomeIcon icon={faBell} className="text-xl" />
-                <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
-                  3
-                </span>
-              </button>
-            </div>
-          </div>
-        </header>
+      
 
         {/* Contenido principal */}
         <div>

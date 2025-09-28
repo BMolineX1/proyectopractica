@@ -22,6 +22,7 @@ function App() {
         <Route path='/editarusuario' element={<UpdateUserForm/>}/>
         <Route path='/ingresarcodigo' element={<IngresarCodigo/>}/>
         <Route path='/Turnos' element={<Turnos/>}/>
+        <Route path="/reservar/:codigo" element={<Turnos />} />
         {/*<Route path="/reservar/:codigo" element={<ReservarTurno />} />*/}
       </Route>
 
