@@ -163,16 +163,43 @@ export default function Layout() {
       </main>
 
       {/* FOOTER */}
-      <footer className="mx-auto w-full max-w-container px-4 sm:px-6 lg:px-8">
-        <div className="border-t border-blue-800 py-10">
-          <p className="mt-5 text-center text-sm leading-6 text-slate-500">
-            © 2022 Tailwind Labs Inc. All rights reserved.
-          </p>
-          <div className="mt-8 flex items-center justify-center space-x-4 text-sm font-semibold leading-6 text-slate-700">
-            <a href="/privacy-policy">Privacy policy</a>
-            <div className="h-4 w-px bg-slate-500/20"></div>
-            <a href="/changelog">Changelog</a>
+      <footer className="bg-slate-900 text-slate-300">
+        <div className="mx-auto max-w-6xl px-4 py-10 grid grid-cols-1 sm:grid-cols-4 gap-8">
+          <div>
+            <h3 className="text-white font-semibold text-lg">Turnate</h3>
+            <p className="mt-2 text-sm text-slate-400">Plataforma digital para gestionar turnos de forma simple y accesible.</p>
           </div>
+          <div>
+            <h3 className="text-white font-semibold">Navegación</h3>
+            <ul className="mt-2 space-y-1 text-sm">
+              <li><a href="/" className="hover:text-white">Inicio</a></li>
+              <li><a href="/nosotros" className="hover:text-white">Nosotros</a></li>
+              <li><a href="/reservar" className="hover:text-white">Reservar</a></li>
+              <li><a href="/emprendedor" className="hover:text-white">Panel</a></li>
+            </ul>
+          </div>
+          <div>
+            <h3 className="text-white font-semibold">Legal</h3>
+            <ul className="mt-2 space-y-1 text-sm">
+              <li><a href="/terminos" className="hover:text-white">Términos y Condiciones</a></li>
+              <li><a href="/privacidad" className="hover:text-white">Política de Privacidad</a></li>
+            </ul>
+          </div>
+          <div>
+            <h3 className="text-white font-semibold">Contacto</h3>
+            <ul className="mt-2 space-y-1 text-sm">
+              <li>Email: contactoturnate@gmail.com</li>
+              <li>WhatsApp: +54 3644 12345678</li>
+            </ul>
+            <div className="mt-3 flex space-x-4">
+              <a href="https://facebook.com" className="hover:text-white">Facebook</a>
+              <a href="https://instagram.com" className="hover:text-white">Instagram</a>
+              <a href="https://linkedin.com" className="hover:text-white">LinkedIn</a>
+            </div>
+          </div>
+        </div>
+        <div className="border-t border-slate-700 py-4 text-center text-xs text-slate-500">
+          © {new Date().getFullYear()} Turnate. Todos los derechos reservados.
         </div>
       </footer>
     </div>
